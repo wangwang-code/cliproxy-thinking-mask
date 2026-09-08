@@ -9,5 +9,5 @@ cliproxy-thinking-mask.h
 *.test
 *.out
 
-# Local patch export (the tracked source of truth is cpa-overlay/)
+# Local patch export (the tracked source of truth is _cpa-overlay/)
 cpa-patch/

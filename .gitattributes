@@ -3,3 +3,4 @@
 build.sh text eol=lf
 .github/workflows/*.yml text eol=lf
 *.go text eol=lf
+_cpa-overlay/**/*.go text eol=lf

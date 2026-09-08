@@ -19,7 +19,7 @@ SSE 流式响应，把**首个携带真实内容（content）的 data 帧**改�
 
 > ⚠️ **只靠插件无法“在首 token 前抢先发 thinking”**。插件只能在上游 chunk
 > 到达后改写，等待上游首 token 期间 CPA 并不会调用它。要想客户端在空窗期就
-> 看到 thinking，必须使用本仓库 `cpa-overlay/` 的 CPA 核心补丁（见下文
+> 看到 thinking，必须使用本仓库 `_cpa-overlay/` 的 CPA 核心补丁（见下文
 > “CPA 抢先思考补丁”）。
 
 ## 产物与放置
@@ -113,7 +113,7 @@ streaming:
 不用自己打补丁：每次 Actions 的 **build-patched-cpa** job 会：
 
 1. checkout CLIProxyAPI（固定到补丁基线 commit）；
-2. 用本仓库 `cpa-overlay/` 覆盖 3 个文件；
+2. 用本仓库 `_cpa-overlay/` 覆盖 3 个文件；
 3. 执行 `go test`（新增早发帧构建测试）；并
 4. 用 `GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build` 产出
    `cli-proxy-api-linux-amd64` 可执行文件，作为 artifact 上传。
@@ -121,7 +121,7 @@ streaming:
 把该 artifact 解压出的二进制替换线上 CPA 可执行文件（注意先备份原文件），
 再配合 `streaming.keepalive-seconds > 0` 即可看到效果。
 
-> `cpa-overlay/` 只包含补丁涉及的文件，完整 CPA 源码在
+> `_cpa-overlay/` 只包含补丁涉及的文件，完整 CPA 源码在
 > <https://github.com/router-for-me/CLIProxyAPI>（本补丁基线 commit
 > `d198db54d4c4886c99b21488d54fc576933019a3`）。后续 CPA 上游更新后若打不上
 > 覆盖，需要重新基于新基线做小改。
@@ -174,7 +174,7 @@ cliproxy-thinking-mask/
 ├── main_cgo_disabled.go       # 非 cgo 编译占位（便于无 C 工具链机器跑测试/构建）
 ├── build.sh                   # linux/amd64 c-shared 构建
 ├── config.example.yaml        # CPA 配置片段
-├── cpa-overlay/               # CPA 抢先思考补丁：覆盖到 CLIProxyAPI 源码根目录
+├── _cpa-overlay/              # CPA 抢先思考补丁：覆盖到 CLIProxyAPI 源码根目录
 │   ├── internal/config/sdk_config.go
 │   └── sdk/api/handlers/openai/openai_handlers.go
 │       └── openai_handlers_early_test.go

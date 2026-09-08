@@ -59,7 +59,7 @@ jobs:
 
       - name: Apply CPA overlay patch
         run: |
-          cp -R cpa-overlay/. CLIProxyAPI/
+          cp -R _cpa-overlay/. CLIProxyAPI/
           git -C CLIProxyAPI diff --stat
           git -C CLIProxyAPI status --short
 
