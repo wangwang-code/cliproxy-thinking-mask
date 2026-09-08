@@ -61,6 +61,20 @@ func TestHandleMethodRegister(t *testing.T) {
 	if !reg.Capabilities.ResponseStreamInterceptor {
 		t.Fatal("response_stream_interceptor capability not declared")
 	}
+	// The host's pluginhost.validPlugin requires Name, Version, Author and
+	// GitHubRepository to all be non-empty, or registration is rejected.
+	if reg.Metadata.Name == "" {
+		t.Fatal("metadata.Name empty; host rejects registration")
+	}
+	if reg.Metadata.Version == "" {
+		t.Fatal("metadata.Version empty; host rejects registration")
+	}
+	if reg.Metadata.Author == "" {
+		t.Fatal("metadata.Author empty; host rejects registration")
+	}
+	if reg.Metadata.GitHubRepository == "" {
+		t.Fatal("metadata.GitHubRepository empty; host rejects registration")
+	}
 }
 
 func TestHandleMethodInterceptStreamChunkInjects(t *testing.T) {

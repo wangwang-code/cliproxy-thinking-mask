@@ -82,8 +82,8 @@ func registrationResult() registration {
 		Metadata: registrationMeta{
 			Name:             "cliproxy-thinking-mask",
 			Version:          "0.1.0",
-			Author:           "cliproxy-thinking-mask",
-			GitHubRepository: "",
+			Author:           "wangwang-code",
+			GitHubRepository: "https://github.com/wangwang-code/cliproxy-thinking-mask",
 			Logo:             "",
 			ConfigFields: []configField{
 				{
