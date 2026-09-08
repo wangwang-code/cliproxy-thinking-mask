@@ -8,3 +8,6 @@ cliproxy-thinking-mask.h
 # Go build/test artifacts
 *.test
 *.out
+
+# Local patch export (the tracked source of truth is cpa-overlay/)
+cpa-patch/

@@ -1,4 +1,4 @@
-# cliproxy-thinking-mask（CLIProxyAPI 插件）
+# cliproxy-thinking-mask（CLIProxyAPI 插件 + CPA 抢先思考补丁）
 
 > 源码托管：<https://github.com/wangwang-code/cliproxy-thinking-mask>
 > Actions 自动编译 linux/amd64 版 `cliproxy-thinking-mask.so`（见下文）。
@@ -17,17 +17,21 @@ SSE 流式响应，把**首个携带真实内容（content）的 data 帧**改�
   时，只需要同时把本插件 enable/disable（插件 ABI 只能拿到自身配置，读不到
   CPA 全局 `streaming.keepalive-seconds`，所以“启用即伪装”由插件开关控制）。
 
+> ⚠️ **只靠插件无法“在首 token 前抢先发 thinking”**。插件只能在上游 chunk
+> 到达后改写，等待上游首 token 期间 CPA 并不会调用它。要想客户端在空窗期就
+> 看到 thinking，必须使用本仓库 `cpa-overlay/` 的 CPA 核心补丁（见下文
+> “CPA 抢先思考补丁”）。
+
 ## 产物与放置
 
 ### 方式一：GitHub Actions 自动编译（推荐）
 
 仓库每次 push / PR 都会由 Actions（`.github/workflows/build.yml`）在
-`ubuntu-latest` 上运行 `go test ./...` 并执行 `build.sh`，产出
-`cliproxy-thinking-mask-linux-amd64` artifact（内含 `.so`）：
+`ubuntu-latest` 上构建两个 artifact：
 
-1. 打开仓库 Actions 页面 → 选中一次成功的 **build-linux-amd64** run。
-2. 页面底部 Artifacts → 下载 `cliproxy-thinking-mask-linux-amd64`。
-3. 解压得到 `cliproxy-thinking-mask.so`，放入 CPA 插件目录（见下）。
+1. `cliproxy-thinking-mask-linux-amd64`：插件 `.so`。
+2. `cliproxy-thinking-mask-cpa-linux-amd64`：打过抢先思考补丁的
+   CLIProxyAPI linux/amd64 可执行文件（`cli-proxy-api-linux-amd64`）。
 
 ### 方式二：本地在 linux/amd64 上构建
 
@@ -77,7 +81,52 @@ plugins:
       thinking-text: "我先理清一下需求，然后给出准确回答。"
 ```
 
-## 工作原理（首帧改写）
+## CPA 抢先思考补丁（本仓库另一个产物）
+
+### 它解决什么
+
+原始 CPA 对 `/v1/chat/completions` 流式请求采用“先窥探第一个完整上游帧，
+成功后才提交 SSE 头”。在等待上游首 token 期间，客户端收不到任何字节：
+转圈/空白、或显示“无响应”。本补丁在 `streaming.keepalive-seconds > 0` 时
+改变该行为：
+
+1. 请求进来后**立即**提交 `text/event-stream` 响应头；
+2. 立刻发送一个只有 `delta.reasoning_content`（无 `content`）的
+   `chat.completion.chunk` 帧——客户端会先渲染“思考中”；
+3. 之后保持原有的 Keepalive 心跳，直到上游真实 chunk 到达，再原样转发；
+4. 真实首帧到达后，插件（如上所述）会在该帧上再补一个
+   `reasoning_content`，因此整个流看起来像“先思考、后正式回答”。
+
+`streaming.keepalive-seconds` 未设置或为 0 时保持原始行为（仍先窥探首帧，
+上游早错会按 JSON 错误返回）。
+
+### 配置（只需在原有 streaming 段下加一行可选文案）
+
+```yaml
+streaming:
+  keepalive-seconds: 5      # > 0 才启用“开流即发思考”，同时保持原有心跳
+  fake-thinking-text: "我先理清一下需求，然后给出准确回答。"  # 可选，缺省用内置英文文案
+```
+
+### 直接使用 Actions 产物
+
+不用自己打补丁：每次 Actions 的 **build-patched-cpa** job 会：
+
+1. checkout CLIProxyAPI（固定到补丁基线 commit）；
+2. 用本仓库 `cpa-overlay/` 覆盖 3 个文件；
+3. 执行 `go test`（新增早发帧构建测试）；并
+4. 用 `GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build` 产出
+   `cli-proxy-api-linux-amd64` 可执行文件，作为 artifact 上传。
+
+把该 artifact 解压出的二进制替换线上 CPA 可执行文件（注意先备份原文件），
+再配合 `streaming.keepalive-seconds > 0` 即可看到效果。
+
+> `cpa-overlay/` 只包含补丁涉及的文件，完整 CPA 源码在
+> <https://github.com/router-for-me/CLIProxyAPI>（本补丁基线 commit
+> `d198db54d4c4886c99b21488d54fc576933019a3`）。后续 CPA 上游更新后若打不上
+> 覆盖，需要重新基于新基线做小改。
+
+## 工作原理（首帧改写插件）
 
 对每个流式 payload 帧做如下判断：
 
@@ -99,6 +148,13 @@ plugins:
 {"id":"chatcmpl-..","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":"好的，我来帮你。","reasoning_content":"我先理清一下需求，然后给出准确回答。"},"finish_reason":null}]}
 ```
 
+## CPA 抢先 thinking 帧示例（补丁新增）
+
+```jsonc
+// 开流后立即发出的第一帧（只有 reasoning_content，没有 content）
+{"id":"chatcmpl-thinking-...","object":"chat.completion.chunk","created":...,"model":"...","choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"我先理清一下需求，然后给出准确回答。"},"finish_reason":null}]}
+```
+
 ## 本地测试 / 其它平台
 
 插件主体依赖 cgo，只能在启用 cgo 的环境里编译成 `.so`；纯逻辑放在
@@ -118,6 +174,10 @@ cliproxy-thinking-mask/
 ├── main_cgo_disabled.go       # 非 cgo 编译占位（便于无 C 工具链机器跑测试/构建）
 ├── build.sh                   # linux/amd64 c-shared 构建
 ├── config.example.yaml        # CPA 配置片段
+├── cpa-overlay/               # CPA 抢先思考补丁：覆盖到 CLIProxyAPI 源码根目录
+│   ├── internal/config/sdk_config.go
+│   └── sdk/api/handlers/openai/openai_handlers.go
+│       └── openai_handlers_early_test.go
 ├── README.md
 ├── internal/mask/
 │   ├── mask.go                # 纯逻辑：首帧 thinking 改写 + 请求级跟踪
