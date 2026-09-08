@@ -1,0 +1,5 @@
+# Force LF for scripts and workflow so Actions never hits CRLF issues.
+* text=auto
+build.sh text eol=lf
+.github/workflows/*.yml text eol=lf
+*.go text eol=lf

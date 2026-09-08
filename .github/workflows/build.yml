@@ -1,0 +1,44 @@
+name: build
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+
+jobs:
+  build-linux-amd64:
+    name: Build linux/amd64 plugin
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      # build.sh forces CGO_ENABLED=1 GOOS=linux GOARCH=amd64, so the cgo C-ABI
+      # entrypoint (main.go) is compiled with the runner's gcc and produces the
+      # CLIProxyAPI plugin shared library.
+      - name: Build .so (c-shared)
+        run: bash build.sh
+
+      - name: Show artifact
+        run: file cliproxy-thinking-mask.so
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cliproxy-thinking-mask-linux-amd64
+          path: cliproxy-thinking-mask.so
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,11 @@
+# Snippet for CLIProxyAPI config.yaml.
+# Put this under your global `plugins:` section to enable the plugin.
+plugins:
+  enabled: true
+  configs:
+    cliproxy-thinking-mask:
+      enabled: true
+      priority: 100
+      # Optional: text attached to the first content frame as
+      # delta.reasoning_content. Leave unset to use the built-in default.
+      thinking-text: "Let me think through this step by step before giving the final answer."
