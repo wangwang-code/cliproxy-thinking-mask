@@ -11,3 +11,6 @@ cliproxy-thinking-mask.h
 
 # Local patch export (the tracked source of truth is _cpa-overlay/)
 cpa-patch/
+
+# Local Downloads (Actions artifacts pulled for verification)
+.downloads/
