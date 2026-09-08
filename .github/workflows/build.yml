@@ -83,7 +83,7 @@ jobs:
         run: |
           GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build \
             -trimpath -ldflags="-s -w" \
-            -o cli-proxy-api-linux-amd64 .
+            -o cli-proxy-api-linux-amd64 ./cmd/server
           file cli-proxy-api-linux-amd64
 
       - name: Upload patched CPA artifact
