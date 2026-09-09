@@ -76,7 +76,9 @@ jobs:
 
       - name: Test patched CPA
         working-directory: CLIProxyAPI
-        run: go test ./sdk/api/handlers/openai/ -run 'TestBuildEarlyThinkingChunk'
+        run: |
+          go test ./sdk/api/handlers/openai/ -run 'TestBuildEarlyThinkingChunk'
+          go test ./sdk/api/handlers/ -run 'TestIsOverloadBootstrapError|TestFailoverConfigEnabled|TestFailoverTerminalError'
 
       - name: Build patched CPA linux/amd64
         working-directory: CLIProxyAPI
