@@ -86,26 +86,40 @@ plugins:
 ### 它解决什么
 
 原始 CPA 对 `/v1/chat/completions` 流式请求采用“先窥探第一个完整上游帧，
-成功后才提交 SSE 头”。在等待上游首 token 期间，客户端收不到任何字节：
-转圈/空白、或显示“无响应”。本补丁在 `streaming.keepalive-seconds > 0` 时
-改变该行为：
+成功后才提交 SSE 头”。而且 `ExecuteStreamWithAuthManager` 会**同步阻塞读上游
+直到首个 payload 到达才返回**——所以若在它返回之后才发 thinking 帧，那帧和
+真实正文几乎同时到，快模型上根本看不出“思考”。
 
-1. 请求进来后**立即**提交 `text/event-stream` 响应头；
-2. 立刻发送一个只有 `delta.reasoning_content`（无 `content`）的
-   `chat.completion.chunk` 帧——客户端会先渲染“思考中”；
-3. 之后保持原有的 Keepalive 心跳，直到上游真实 chunk 到达，再原样转发；
-4. 真实首帧到达后，插件（如上所述）会在该帧上再补一个
-   `reasoning_content`，因此整个流看起来像“先思考、后正式回答”。
+本补丁在 `streaming.keepalive-seconds > 0` 时改成**抢先模式**：
+
+1. 请求一进来（t=0）就**立即**提交 `text/event-stream` 响应头，并立刻发一个
+   只有 `delta.reasoning_content`（无 `content`）的 `chat.completion.chunk`
+   帧——客户端马上进入“思考中”；
+2. 上游执行（含其同步 bootstrap）放到后台 goroutine；
+3. 在等上游首个真实 chunk 期间，按 keepalive 周期持续发 `: keep-alive` 心跳，
+   客户端不会被判定超时/空白；
+4. 上游首 chunk 一就绪，立即接上 `handleStreamResult` 原样转发真实流；随后
+   插件（如上）会在真实首内容帧上再补一个 `reasoning_content`，形成
+   “思考中 → 正式回答”两段式。
 
 `streaming.keepalive-seconds` 未设置或为 0 时保持原始行为（仍先窥探首帧，
 上游早错会按 JSON 错误返回）。
+
+> ⚠️ 抢先模式的取舍（仅 keepalive>0 时生效）：
+> - 上游响应头**无法透传**——它们只在上游首字节后才存在，而此刻响应已提交；
+>   因此启用抢先模式时请关掉 `passthrough-headers`（否则这些流会拿不到
+>   响应头，属于预期行为，不是 bug）。
+> - 上游若在首字节前报错，会以 SSE 错误帧呈现，而**不是** HTTP 4xx JSON
+>   （这是“抢先”的必然代价）。
 
 ### 配置（只需在原有 streaming 段下加一行可选文案）
 
 ```yaml
 streaming:
-  keepalive-seconds: 5      # > 0 才启用“开流即发思考”，同时保持原有心跳
+  keepalive-seconds: 5      # > 0 才启用“开流即抢先发 thinking”，同时保持心跳
   fake-thinking-text: "我先理清一下需求，然后给出准确回答。"  # 可选，缺省用内置英文文案
+
+passthrough-headers: false  # 建议关掉：抢先模式下上游响应头无法透传（见上）
 ```
 
 ### 直接使用 Actions 产物

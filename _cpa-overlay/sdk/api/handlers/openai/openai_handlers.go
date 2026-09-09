@@ -474,7 +474,6 @@ func (h *OpenAIAPIHandler) handleStreamingResponse(c *gin.Context, rawJSON []byt
 
 	modelName := gjson.GetBytes(rawJSON, "model").String()
 	cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
-	dataChan, upstreamHeaders, errChan := h.ExecuteStreamWithAuthManager(cliCtx, h.HandlerType(), modelName, rawJSON, h.GetAlt(c))
 
 	setSSEHeaders := func() {
 		c.Header("Content-Type", "text/event-stream")
@@ -483,27 +482,61 @@ func (h *OpenAIAPIHandler) handleStreamingResponse(c *gin.Context, rawJSON []byt
 		c.Header("Access-Control-Allow-Origin", "*")
 	}
 
-	// Early-commit path: when streaming keep-alives are configured
-	// (streaming.keepalive-seconds > 0), commit the SSE response immediately and
-	// send a fake reasoning_content frame so the client sees a thinking phase
-	// instead of silence (and idle proxies stay alive) while the upstream first
-	// token is pending. Real chunks are relayed right after it. When keep-alives
-	// are disabled the default peek-first behavior below is preserved so early
-	// upstream errors can still be returned as a JSON error response.
+	// Preemptive path: when streaming keep-alives are configured
+	// (streaming.keepalive-seconds > 0), commit the SSE response and send a fake
+	// reasoning_content frame immediately, before the upstream first token. The
+	// upstream execution (whose synchronous bootstrap reads until the first
+	// upstream chunk) runs in the background while this handler keeps the client
+	// connection alive with keep-alive heartbeats; once the upstream first chunk
+	// is ready the real stream is spliced in below.
+	//
+	// Trade-offs (only when keep-alives are enabled):
+	//   - Upstream response headers cannot be forwarded (they exist only after
+	//     the upstream first byte, by which time this response is committed).
+	//   - An upstream rejection is delivered as an SSE error frame rather than
+	//     an HTTP error JSON response.
+	// When keep-alives are disabled the original peek-first path below is
+	// preserved so early upstream errors still return proper HTTP error JSON.
 	if handlers.StreamingKeepAliveInterval(h.Cfg) > 0 {
 		thinkingText := ""
 		if h.Cfg != nil {
 			thinkingText = h.Cfg.Streaming.FakeThinkingText
 		}
+
+		type streamStart struct {
+			data <-chan []byte
+			errs <-chan *interfaces.ErrorMessage
+		}
+		started := make(chan streamStart, 1)
+		go func() {
+			dataChan, _, errChan := h.ExecuteStreamWithAuthManager(cliCtx, h.HandlerType(), modelName, rawJSON, h.GetAlt(c))
+			started <- streamStart{data: dataChan, errs: errChan}
+		}()
+
 		setSSEHeaders()
-		handlers.WriteUpstreamHeaders(c.Writer.Header(), upstreamHeaders)
 		if first := buildEarlyThinkingChunk(modelName, thinkingText); len(first) > 0 {
 			_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", string(first))
 			flusher.Flush()
 		}
-		h.handleStreamResult(c, flusher, func(err error) { cliCancel(err) }, dataChan, errChan)
-		return
+
+		keepAlive := time.NewTicker(handlers.StreamingKeepAliveInterval(h.Cfg))
+		defer keepAlive.Stop()
+		for {
+			select {
+			case <-c.Request.Context().Done():
+				cliCancel(c.Request.Context().Err())
+				return
+			case start := <-started:
+				h.handleStreamResult(c, flusher, func(err error) { cliCancel(err) }, start.data, start.errs)
+				return
+			case <-keepAlive.C:
+				_, _ = c.Writer.Write([]byte(": keep-alive\n\n"))
+				flusher.Flush()
+			}
+		}
 	}
+
+	dataChan, upstreamHeaders, errChan := h.ExecuteStreamWithAuthManager(cliCtx, h.HandlerType(), modelName, rawJSON, h.GetAlt(c))
 
 	// Peek at the first chunk to determine success or failure before setting headers
 	for {
