@@ -61,6 +61,11 @@ type SDKConfig struct {
 	// Streaming configures server-side streaming behavior (keep-alives and safe bootstrap retries).
 	Streaming StreamingConfig `yaml:"streaming" json:"streaming"`
 
+	// Failover configures silent failover to OpenAI-compatible endpoints when a
+	// primary provider (for example a codex OAuth pool) rejects a chat.completions
+	// request with an overload/502/503 bootstrap error.
+	Failover FailoverConfig `yaml:"failover" json:"failover"`
+
 	// NonStreamKeepAliveInterval controls how often blank lines are emitted for non-streaming responses.
 	// <= 0 disables keep-alives. Value is in seconds.
 	NonStreamKeepAliveInterval int `yaml:"nonstream-keepalive-interval,omitempty" json:"nonstream-keepalive-interval,omitempty"`

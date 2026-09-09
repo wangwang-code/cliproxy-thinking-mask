@@ -140,6 +140,60 @@ passthrough-headers: false  # 建议关掉：抢先模式下上游响应头无�
 > `d198db54d4c4886c99b21488d54fc576933019a3`）。后续 CPA 上游更新后若打不上
 > 覆盖，需要重新基于新基线做小改。
 
+## CPA codex 过载静默降级补丁（第二个 overlay 产物，与 thinking 共存）
+
+> 背景：生产以 **codex(OAuth)** 池为主力，OpenAI 过载时 CPA 会收到
+> `server_is_overloaded`（502/503），内置 failover 只会在同一批 codex 凭据里
+> 轮换；全部 codex 账号过载时 502 直出到客户端，**不会**尝试 grok 等
+> OpenAI 兼容端点。
+>
+> 纯 `.so` 插件做不到“观察到 502 后换 provider 重发”（插件 ABI 无此回调，
+> 且 codex OAuth 只能由 CPA 宿主执行），所以这也是 CPA overlay，与抢先思考
+> 补丁在同一个 `_cpa-overlay/` / 同一份 Actions 产物里，互不影响。
+
+### 行为
+
+`/v1/chat/completions`（payload 带 `messages`）在主 provider 返回
+overload/502/503（bootstrap 阶段）时：
+
+1. 依次尝试 `failover.endpoints` 里列出的 **OpenAI-compatible 端点**（按
+   priority 升序；每个必须已在 `openai-compatibility` 里 `disabled:false`
+   启用，否则不可用）；
+2. 任一成功 → 透明接管（流式下客户端只会看到思考/心跳变长，然后接该端点
+   的真实内容；非流式直接返回其响应）；
+3. 全部失败 → 返回合成错误（`terminal-*`，默认）：
+   ```json
+   {"error":{"type":"service_unavailable_error","code":"server_is_overloaded","message":"云翻译服务暂不可用，请稍后重试","param":null}}
+   ```
+   HTTP 状态默认 502。
+
+> 端点可选 `model` 覆盖（发给该端点的模型名，不依赖 `openai-compatibility`
+> 里填的 alias）；留空则用原请求模型、由该端点的 alias 映射解析。
+
+### 配置示例
+
+```yaml
+failover:
+  enabled: true
+  primary-providers:
+    - codex
+  endpoints:
+    - name: "grok web"     # 必须匹配一个已启用的 openai-compatibility 名
+      priority: 1
+      model: ""            # 可选覆盖模型；留空用原模型
+  terminal-status: 502
+  terminal-type: "service_unavailable_error"
+  terminal-code: "server_is_overloaded"
+  terminal-message: "云翻译服务暂不可用，请稍后重试"
+```
+
+### 生效前提
+
+- 使用本仓库 Actions 产物里的 **patched CPA**（同时含 thinking + failover）；
+- `failover.enabled: true`，且想用的降级端点在 `openai-compatibility` 里
+  `disabled: false`（例如把 `grok web` 打开）；
+- 只作用于 `/v1/chat/completions`，其它入口不受影响。
+
 ## 工作原理（首帧改写插件）
 
 对每个流式 payload 帧做如下判断：
@@ -188,10 +242,15 @@ cliproxy-thinking-mask/
 ├── main_cgo_disabled.go       # 非 cgo 编译占位（便于无 C 工具链机器跑测试/构建）
 ├── build.sh                   # linux/amd64 c-shared 构建
 ├── config.example.yaml        # CPA 配置片段
-├── _cpa-overlay/              # CPA 抢先思考补丁：覆盖到 CLIProxyAPI 源码根目录
-│   ├── internal/config/sdk_config.go
-│   └── sdk/api/handlers/openai/openai_handlers.go
-│       └── openai_handlers_early_test.go
+├── _cpa-overlay/              # CPA 补丁（thinking + codex 过载降级）：覆盖到 CLIProxyAPI 源码根目录
+│   ├── internal/config/sdk_config.go        # 新增 failover 字段
+│   ├── internal/config/sdk_failover.go      # failover 配置类型
+│   ├── sdk/api/handlers/handlers_failover.go        # 降级判定/终端错误构造
+│   ├── sdk/api/handlers/handlers_failover_test.go
+│   ├── sdk/api/handlers/handlers_execution.go       # 非流式降级接入
+│   ├── sdk/api/handlers/handlers_stream.go          # 流式降级接入
+│   ├── sdk/api/handlers/openai/openai_handlers.go   # 抢先 thinking
+│   └── sdk/api/handlers/openai/openai_handlers_early_test.go
 ├── README.md
 ├── internal/mask/
 │   ├── mask.go                # 纯逻辑：首帧 thinking 改写 + 请求级跟踪

@@ -9,3 +9,30 @@ plugins:
       # Optional: text attached to the first content frame as
       # delta.reasoning_content. Leave unset to use the built-in default.
       thinking-text: "Let me think through this step by step before giving the final answer."
+
+# ---------------------------------------------------------------------------
+# Failover (CPA overlay patch, shipped with the patched cli-proxy-api binary).
+# Silent failover of /v1/chat/completions when the primary provider (e.g. the
+# codex OAuth pool) rejects the request with an overload / 502 / 503 error at
+# bootstrap. Every endpoint listed below must also be ENABLED (disabled: false)
+# under the top-level `openai-compatibility` list, otherwise it cannot be used.
+# ---------------------------------------------------------------------------
+failover:
+  enabled: true
+  # Only trigger when the failing attempt was routed to one of these providers.
+  # "codex" is the internal provider key used by the codex OAuth pool.
+  primary-providers:
+    - codex
+  # Fallback endpoints, tried in ascending priority order.
+  endpoints:
+    - name: "grok web"            # must match an enabled openai-compatibility name
+      priority: 1
+      # Optional model override sent to this endpoint. Leave empty to keep the
+      # requested model (the endpoint's own alias mapping, if any, is used).
+      model: ""
+  # Synthetic error returned when EVERY endpoint also fails:
+  #   {"error":{"type":...,"code":...,"message":...,"param":null}}
+  terminal-status: 502
+  terminal-type: "service_unavailable_error"
+  terminal-code: "server_is_overloaded"
+  terminal-message: "云翻译服务暂不可用，请稍后重试"
