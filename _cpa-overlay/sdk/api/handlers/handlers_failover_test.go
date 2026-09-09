@@ -2,11 +2,13 @@ package handlers
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 )
 
 // statusErr is a minimal status-carrying error for exercising HTTPStatusFromError.
@@ -126,5 +128,52 @@ func TestFailoverTerminalError(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("terminal body missing %s: %s", want, body)
 		}
+	}
+}
+
+func TestIsNoAuthAvailableError(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"auth_not_found core error", &coreauth.Error{Code: "auth_not_found", Message: "no auth available"}, true},
+		{"auth_unavailable core error", &coreauth.Error{Code: "auth_unavailable", Message: "no auth available"}, true},
+		{"wrapped auth_not_found", fmt.Errorf("execute: %w", &coreauth.Error{Code: "auth_not_found", Message: "selector returned no auth"}), true},
+		{"plain text no auth available", errors.New("no auth available"), true},
+		{"plain text no eligible auth", errors.New("selector returned no eligible auth"), true},
+		{"unrelated", errors.New("upstream 500 boom"), false},
+		{"overload body not auth error", errors.New(`{"error":{"code":"server_is_overloaded"}}`), false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := isNoAuthAvailableError(c.err); got != c.want {
+				t.Fatalf("isNoAuthAvailableError() = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestIsFailoverTriggerError(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"overload body", errors.New(`{"error":{"code":"server_is_overloaded"}}`), true},
+		{"502 status", statusErr{code: http.StatusBadGateway, msg: "gateway"}, true},
+		{"429 status", statusErr{code: http.StatusTooManyRequests, msg: "rate limited"}, true},
+		{"auth_not_found", &coreauth.Error{Code: "auth_not_found", Message: "no auth available"}, true},
+		{"auth_unavailable", &coreauth.Error{Code: "auth_unavailable", Message: "no auth available"}, true},
+		{"404 status", statusErr{code: http.StatusNotFound, msg: "model not found"}, false},
+		{"400 request fault", errors.New("invalid request"), false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := isFailoverTriggerError(c.err); got != c.want {
+				t.Fatalf("isFailoverTriggerError() = %v, want %v", got, c.want)
+			}
+		})
 	}
 }

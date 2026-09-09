@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -10,6 +11,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/interfaces"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
+	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/sjson"
@@ -20,12 +22,50 @@ import (
 // endpoints (/v1/chat/completions). Failover is intentionally restricted to it.
 const openAIEntryProtocol = "openai"
 
+// isNoAuthAvailableError reports whether the upstream execution failed because
+// no credential could be selected for the primary provider — e.g. the entire
+// codex OAuth pool has been disabled (401s auto-disabled by the credential
+// automation) or is cooling down. When that happens there is no point retrying
+// the primary provider again; a failover endpoint is the only remaining path.
+func isNoAuthAvailableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var authErr *coreauth.Error
+	if errors.As(err, &authErr) && authErr != nil {
+		code := strings.ToLower(strings.TrimSpace(authErr.Code))
+		if code == "auth_not_found" || code == "auth_unavailable" {
+			return true
+		}
+	}
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "auth_not_found") ||
+		strings.Contains(text, "auth_unavailable") ||
+		strings.Contains(text, "no auth available") ||
+		strings.Contains(text, "no eligible auth") ||
+		strings.Contains(text, "selector returned no auth") ||
+		strings.Contains(text, "no auth candidates")
+}
+
+// isFailoverTriggerError reports whether an upstream execution error should
+// trigger the silent failover path. Two families qualify:
+//   - transient capacity rejections (overload 502/503, 429, 499) that a
+//     different provider may serve, and
+//   - "no auth available" for the primary provider (pool disabled/exhausted).
+func isFailoverTriggerError(err error) bool {
+	return isOverloadBootstrapError(err) || isNoAuthAvailableError(err)
+}
+
 // isOverloadBootstrapError reports whether an upstream execution error looks like
 // a transient capacity rejection (OpenAI "server_is_overloaded" / HTTP 502-503)
 // that a different credential/provider may be able to serve. HTTP 502/503 from
 // the codex bootstrap path are already classified as overload-class failures by
 // CPA, so any 502/503 is treated as eligible without requiring the text to name
-// the overload condition. HTTP 500 only counts when the text names overload.
+// the overload condition. 429 (rate limit / quota) is also eligible: a different
+// provider may still serve the request. 499 (client-closed / upstream gateway
+// abort) is treated as eligible when the error carries that status so a codex
+// gateway abort also fails over instead of surfacing raw. HTTP 500 only counts
+// when the text names overload.
 func isOverloadBootstrapError(err error) bool {
 	if err == nil {
 		return false
@@ -37,7 +77,7 @@ func isOverloadBootstrapError(err error) bool {
 		return true
 	}
 	switch statusFromError(err) {
-	case http.StatusBadGateway, http.StatusServiceUnavailable:
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusTooManyRequests, 499:
 		return true
 	case http.StatusInternalServerError:
 		return text == "" || strings.Contains(text, "overload")
@@ -172,8 +212,8 @@ func (h *BaseAPIHandler) tryNonStreamFailover(ctx context.Context, entryProtocol
 		log.Warnf("failover: skipped (preconditions) enabled=%v entryOK=%v hasMessages=%v protocol=%q err=%v", enabled, entryOK, hasMessages, entryProtocol, cause)
 		return resp, false, false
 	}
-	if !isOverloadBootstrapError(cause) {
-		log.Warnf("failover: skipped (not overload) protocol=%s providers=%v status=%d err=%v", entryProtocol, providers, statusFromError(cause), cause)
+	if !isFailoverTriggerError(cause) {
+		log.Warnf("failover: skipped (not trigger) protocol=%s providers=%v status=%d err=%v", entryProtocol, providers, statusFromError(cause), cause)
 		return resp, false, false
 	}
 	if !h.failoverMatchesPrimary(providers) {
@@ -207,8 +247,8 @@ func (h *BaseAPIHandler) tryStreamFailover(ctx context.Context, entryProtocol st
 		log.Warnf("failover: skipped (preconditions) enabled=%v entryOK=%v hasMessages=%v protocol=%q err=%v", enabled, entryOK, hasMessages, entryProtocol, cause)
 		return nil, false, false
 	}
-	if !isOverloadBootstrapError(cause) {
-		log.Warnf("failover: skipped (not overload) protocol=%s providers=%v status=%d err=%v", entryProtocol, providers, statusFromError(cause), cause)
+	if !isFailoverTriggerError(cause) {
+		log.Warnf("failover: skipped (not trigger) protocol=%s providers=%v status=%d err=%v", entryProtocol, providers, statusFromError(cause), cause)
 		return nil, false, false
 	}
 	if !h.failoverMatchesPrimary(providers) {
