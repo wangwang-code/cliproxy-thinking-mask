@@ -11,6 +11,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/interfaces"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
+	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/sjson"
 	"golang.org/x/net/context"
 )
@@ -21,7 +22,10 @@ const openAIEntryProtocol = "openai"
 
 // isOverloadBootstrapError reports whether an upstream execution error looks like
 // a transient capacity rejection (OpenAI "server_is_overloaded" / HTTP 502-503)
-// that a different credential/provider may be able to serve.
+// that a different credential/provider may be able to serve. HTTP 502/503 from
+// the codex bootstrap path are already classified as overload-class failures by
+// CPA, so any 502/503 is treated as eligible without requiring the text to name
+// the overload condition. HTTP 500 only counts when the text names overload.
 func isOverloadBootstrapError(err error) bool {
 	if err == nil {
 		return false
@@ -33,9 +37,9 @@ func isOverloadBootstrapError(err error) bool {
 		return true
 	}
 	switch statusFromError(err) {
-	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusInternalServerError:
-		// 500 is only treated as overload here when the text already names the
-		// overload condition; guarded below.
+	case http.StatusBadGateway, http.StatusServiceUnavailable:
+		return true
+	case http.StatusInternalServerError:
 		return text == "" || strings.Contains(text, "overload")
 	default:
 		return false
@@ -149,11 +153,31 @@ func (h *BaseAPIHandler) failoverTerminalError() *interfaces.ErrorMessage {
 //   - applied=true, ok=true: a fallback endpoint succeeded; resp is usable.
 //   - applied=true, ok=false: every endpoint failed; caller must emit the
 //     synthetic terminal error.
+//
+// failoverDiagnosticState resolves which preconditions for failover are met, for logging.
+func (h *BaseAPIHandler) failoverDiagnosticState(entryProtocol string, payload []byte) (enabled, entryOK, hasMessages bool) {
+	enabled = h != nil && h.Cfg != nil && h.Cfg.Failover.Enabled
+	entryOK = entryProtocol == openAIEntryProtocol
+	hasMessages = len(payload) > 0 && bytes.Contains(payload, []byte(`"messages"`))
+	return
+}
+
 func (h *BaseAPIHandler) tryNonStreamFailover(ctx context.Context, entryProtocol string, providers []string, req coreexecutor.Request, opts coreexecutor.Options, payload []byte, cause error) (resp coreexecutor.Response, applied, ok bool) {
-	if h == nil || h.AuthManager == nil || !h.failoverConfigEnabled(entryProtocol, payload) {
+	if h == nil || h.AuthManager == nil {
+		log.Warnf("failover: skipped (nil handler/auth) protocol=%s providers=%v", entryProtocol, providers)
 		return resp, false, false
 	}
-	if !isOverloadBootstrapError(cause) || !h.failoverMatchesPrimary(providers) {
+	enabled, entryOK, hasMessages := h.failoverDiagnosticState(entryProtocol, payload)
+	if !enabled || !entryOK || !hasMessages {
+		log.Warnf("failover: skipped (preconditions) enabled=%v entryOK=%v hasMessages=%v protocol=%q err=%v", enabled, entryOK, hasMessages, entryProtocol, cause)
+		return resp, false, false
+	}
+	if !isOverloadBootstrapError(cause) {
+		log.Warnf("failover: skipped (not overload) protocol=%s providers=%v status=%d err=%v", entryProtocol, providers, statusFromError(cause), cause)
+		return resp, false, false
+	}
+	if !h.failoverMatchesPrimary(providers) {
+		log.Warnf("failover: skipped (primary mismatch) providers=%v configured=%v", providers, h.Cfg.Failover.PrimaryProviders)
 		return resp, false, false
 	}
 	for _, endpoint := range h.failoverEndpoints() {
@@ -161,10 +185,12 @@ func (h *BaseAPIHandler) tryNonStreamFailover(ctx context.Context, entryProtocol
 			continue
 		}
 		attemptProviders, attemptReq := h.failoverAttempt(endpoint, providers, req)
+		log.Warnf("failover: trying endpoint=%q providers=%v model=%q", endpoint.Name, attemptProviders, attemptReq.Model)
 		attemptResp, attemptErr := h.AuthManager.Execute(ctx, attemptProviders, attemptReq, opts)
 		if attemptErr == nil {
 			return attemptResp, true, true
 		}
+		log.Warnf("failover: endpoint=%q failed err=%v", endpoint.Name, attemptErr)
 	}
 	return resp, true, false
 }
@@ -172,10 +198,21 @@ func (h *BaseAPIHandler) tryNonStreamFailover(ctx context.Context, entryProtocol
 // tryStreamFailover runs the streaming fallback chain (same semantics as
 // tryNonStreamFailover, returning a stream result instead of a response).
 func (h *BaseAPIHandler) tryStreamFailover(ctx context.Context, entryProtocol string, providers []string, req coreexecutor.Request, opts coreexecutor.Options, payload []byte, cause error) (result *coreexecutor.StreamResult, applied, ok bool) {
-	if h == nil || h.AuthManager == nil || !h.failoverConfigEnabled(entryProtocol, payload) {
+	if h == nil || h.AuthManager == nil {
+		log.Warnf("failover: skipped (nil handler/auth) protocol=%s providers=%v", entryProtocol, providers)
 		return nil, false, false
 	}
-	if !isOverloadBootstrapError(cause) || !h.failoverMatchesPrimary(providers) {
+	enabled, entryOK, hasMessages := h.failoverDiagnosticState(entryProtocol, payload)
+	if !enabled || !entryOK || !hasMessages {
+		log.Warnf("failover: skipped (preconditions) enabled=%v entryOK=%v hasMessages=%v protocol=%q err=%v", enabled, entryOK, hasMessages, entryProtocol, cause)
+		return nil, false, false
+	}
+	if !isOverloadBootstrapError(cause) {
+		log.Warnf("failover: skipped (not overload) protocol=%s providers=%v status=%d err=%v", entryProtocol, providers, statusFromError(cause), cause)
+		return nil, false, false
+	}
+	if !h.failoverMatchesPrimary(providers) {
+		log.Warnf("failover: skipped (primary mismatch) providers=%v configured=%v", providers, h.Cfg.Failover.PrimaryProviders)
 		return nil, false, false
 	}
 	for _, endpoint := range h.failoverEndpoints() {
@@ -183,10 +220,12 @@ func (h *BaseAPIHandler) tryStreamFailover(ctx context.Context, entryProtocol st
 			continue
 		}
 		attemptProviders, attemptReq := h.failoverAttempt(endpoint, providers, req)
+		log.Warnf("failover: trying endpoint=%q providers=%v model=%q", endpoint.Name, attemptProviders, attemptReq.Model)
 		attemptResult, attemptErr := h.AuthManager.ExecuteStream(ctx, attemptProviders, attemptReq, opts)
 		if attemptErr == nil && attemptResult != nil && attemptResult.Chunks != nil {
 			return attemptResult, true, true
 		}
+		log.Warnf("failover: endpoint=%q failed err=%v", endpoint.Name, attemptErr)
 	}
 	return nil, true, false
 }

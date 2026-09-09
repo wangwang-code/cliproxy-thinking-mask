@@ -2,11 +2,27 @@ package handlers
 
 import (
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 )
+
+// statusErr is a minimal status-carrying error for exercising HTTPStatusFromError.
+type statusErr struct {
+	code int
+	msg  string
+}
+
+func (e statusErr) Error() string { return e.msg }
+
+func (e statusErr) StatusCode() int {
+	if e.code == 0 {
+		return http.StatusBadGateway
+	}
+	return e.code
+}
 
 func TestIsOverloadBootstrapError(t *testing.T) {
 	cases := []struct {
@@ -35,13 +51,28 @@ func TestIsOverloadBootstrapError(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "unrelated bad gateway",
-			err:  errors.New(`upstream 502: connection reset`),
+			name: "502 status without overload text",
+			err:  statusErr{code: http.StatusBadGateway, msg: "upstream execution failed: gateway timeout"},
+			want: true,
+		},
+		{
+			name: "503 status without overload text",
+			err:  statusErr{code: http.StatusServiceUnavailable, msg: "provider unavailable"},
+			want: true,
+		},
+		{
+			name: "500 without overload text",
+			err:  statusErr{code: http.StatusInternalServerError, msg: "internal error"},
 			want: false,
 		},
 		{
-			name: "plain 503 without marker",
-			err:  errors.New(`upstream returned status 503`),
+			name: "404 status",
+			err:  statusErr{code: http.StatusNotFound, msg: "model not found"},
+			want: false,
+		},
+		{
+			name: "unrelated bad gateway without status",
+			err:  errors.New(`upstream 502: connection reset`),
 			want: false,
 		},
 	}
