@@ -16,19 +16,30 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// Codex connection-layer retry configuration. These are read from environment
-// variables so they can be tuned without touching the config file structure
-// (and without forcing a large config_types.go overlay):
+// Codex connection-layer retry configuration. Preferred source is the
+// `codex.connection-retry` / `codex.connection-retry-interval` config fields.
+// When those are unset (zero) the legacy environment variables are honored,
+// and when those are also unset the historical default of 2 retries applies:
 //
 //   - CODEX_CONN_RETRIES: number of extra attempts after the first for
 //     connection-layer failures (EOF / connection reset / dial / TLS
-//     handshake / timeout). Default 2 (i.e. up to 3 total attempts).
-//   - CODEX_CONN_RETRY_DELAY_MS: delay between attempts. Default 500.
+//     handshake / timeout).
+//   - CODEX_CONN_RETRY_DELAY_MS: delay between attempts.
 //
 // Only connection-layer failures are retried. Errors that indicate the request
 // reached the upstream and produced an HTTP status (4xx/5xx) are not retried
 // here — the conductor/credential rotation layers own those.
-func codexConnRetrySettings() (retries int, delay time.Duration) {
+func codexConnRetrySettings(cfg *config.Config) (retries int, delay time.Duration) {
+	// config takes precedence when explicitly set (non-zero)
+	if cfg != nil && cfg.Codex.ConnectionRetry != 0 {
+		retries = cfg.Codex.ConnectionRetry
+		if retries < 0 {
+			retries = 0
+		}
+		delay = codexConnectionRetryInterval(cfg.Codex.ConnectionRetryInterval)
+		return retries, delay
+	}
+	// fallback: env, then historical default of 2
 	retries = 2
 	delay = 500 * time.Millisecond
 	if raw := strings.TrimSpace(os.Getenv("CODEX_CONN_RETRIES")); raw != "" {
@@ -42,6 +53,15 @@ func codexConnRetrySettings() (retries int, delay time.Duration) {
 		}
 	}
 	return retries, delay
+}
+
+// codexConnectionRetryInterval parses a duration string and falls back to a
+// default when empty or invalid.
+func codexConnectionRetryInterval(raw string) time.Duration {
+	if d, err := time.ParseDuration(strings.TrimSpace(raw)); err == nil && d > 0 {
+		return d
+	}
+	return 300 * time.Millisecond
 }
 
 // isRetryableConnectionError reports whether a RoundTrip error is a
@@ -150,11 +170,12 @@ func (t *codexRetryRoundTripper) RoundTrip(req *http.Request) (*http.Response, e
 // by NewUtlsHTTPClient, so chatgpt.com keeps its Chrome uTLS fingerprint and
 // other codex upstreams (e.g. agentrouter) keep their standard/proxy transport.
 //
-// Retry count and delay are read from CODEX_CONN_RETRIES and
-// CODEX_CONN_RETRY_DELAY_MS (see codexConnRetrySettings).
+// Retry count and delay come from the codex.connection-retry /
+// codex.connection-retry-interval config fields, with the legacy
+// CODEX_CONN_RETRIES / CODEX_CONN_RETRY_DELAY_MS env vars as fallback.
 func NewCodexHTTPClient(ctx context.Context, cfg *config.Config, auth *cliproxyauth.Auth, timeout time.Duration) *http.Client {
 	base := NewUtlsHTTPClient(ctx, cfg, auth, timeout)
-	retries, delay := codexConnRetrySettings()
+	retries, delay := codexConnRetrySettings(cfg)
 	if retries <= 0 {
 		return base
 	}

@@ -11,6 +11,25 @@ plugins:
       thinking-text: "Let me think through this step by step before giving the final answer."
 
 # ---------------------------------------------------------------------------
+# Codex retry tuning (CPA overlay patch, shipped with the patched cli-proxy-api
+# binary). All optional; defaults match the previous fixed behavior.
+# ---------------------------------------------------------------------------
+codex:
+  # In-place retry of codex upstream requests on transport-level failures
+  # (EOF / TLS handshake / dial / connection reset) BEFORE any HTTP status is
+  # received. Unset (0) falls back to legacy env CODEX_CONN_RETRIES, then to a
+  # default of 2. Set to a negative value to disable.
+  connection-retry: 2
+  connection-retry-interval: "500ms"
+  # Token refresh retry attempts per refresh call. Unset (0) uses the historical
+  # default of 3. Set a negative value for a single attempt (no retry). The
+  # 401-with-invalidated-refresh-token case cannot be fixed by retrying, so
+  # consider 1 (or negative) to fail fast and let the credential automation
+  # disable the account.
+  refresh-retries: 3
+  refresh-retry-interval: "1s"
+
+# ---------------------------------------------------------------------------
 # Failover (CPA overlay patch, shipped with the patched cli-proxy-api binary).
 # Silent failover of /v1/chat/completions when the primary provider (e.g. the
 # codex OAuth pool) rejects the request with an overload / 502 / 503 error at
