@@ -81,6 +81,38 @@ plugins:
       thinking-text: "我先理清一下需求，然后给出准确回答。"
 ```
 
+## CPA codex OAuth 登录按请求走代理补丁（第三个 overlay 产物）
+
+> 背景：管理面板做 codex OAuth 登录时，CPA 后端在“开始登录 → 提交回调 →
+> code 换 token → 后续认证出站”这条链路上会向 auth.openai.com 发请求。默认
+> 走全局 `proxy-url`，换机器/多代理时常要反复改全局代理，且可能漏出 CPA 本机
+> 直连出口。
+>
+> 本补丁让**单次登录请求自带代理**：页面顶部的代理地址随发起请求传给 CPA，
+> 这次登录的全部 CPA 出站都走它，不碰全局配置。
+
+### 后端接口约定（已实现）
+
+`GET /v0/management/codex-auth-url` 现在接受：
+
+- query：`?proxy-url=socks5://user:pass@host:1080`
+- 或请求头：`X-Proxy-URL: socks5://user:pass@host:1080`
+
+当 `proxy-url` 非空时，CPA 用
+`codex.NewCodexAuthWithProxyURL(cfg, proxyURL)` 构造本次登录的 auth 服务，
+使该次登录里 code→token 交换等 CPA 出站全部走这个代理；为空则回落到全局
+`proxy-url` 原行为。
+
+> 覆盖的是 **CPA 本机向 provider 发出的请求**。浏览器打开授权页、以及本地
+> 回调收码这两段不经过 CPA（浏览器直连 auth.openai.com），不受此开关影响——
+> 这是“避免漏出 CPA 本机出口”的语义范围。
+
+### 前端/插件要做的
+
+在发起 codex OAuth 登录的页面顶部提供“代理地址”输入，调用
+`/v0/management/codex-auth-url` 时把该值作为 `proxy-url` query（或
+`X-Proxy-URL` 头）带上即可；登录页面轮询/回调逻辑无需其它改动。
+
 ## CPA 抢先思考补丁（本仓库另一个产物）
 
 ### 它解决什么
