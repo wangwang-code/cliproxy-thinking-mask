@@ -112,7 +112,7 @@ func (h *BaseAPIHandler) executeWithAuthManagerFormats(ctx context.Context, entr
 	}
 	if err != nil {
 		err = enrichAuthSelectionError(err, providers, normalizedModel)
-		errMsg := executionErrorMessage(err)
+		errMsg := h.executionErrorMessageForHandler(err)
 		lifecycle.completeError(ctx, errMsg)
 		return nil, nil, errMsg
 	}
@@ -180,7 +180,7 @@ func (h *BaseAPIHandler) executeCountWithAuthManager(ctx context.Context, handle
 	resp, err := h.AuthManager.ExecuteCount(ctx, providers, req, opts)
 	if err != nil {
 		err = enrichAuthSelectionError(err, providers, normalizedModel)
-		errMsg := executionErrorMessage(err)
+		errMsg := h.executionErrorMessageForHandler(err)
 		lifecycle.completeError(ctx, errMsg)
 		return nil, nil, errMsg
 	}
@@ -226,7 +226,7 @@ func (h *BaseAPIHandler) executeWithPluginExecutor(ctx context.Context, entryPro
 		if reporter != nil && !nestedTracker.hasNestedExecution() {
 			reporter.PublishFailure(execCtx, errExecute)
 		}
-		errMsg := executionErrorMessage(errExecute)
+		errMsg := h.executionErrorMessageForHandler(errExecute)
 		lifecycle.completeError(execCtx, errMsg)
 		return nil, nil, errMsg
 	}
@@ -266,7 +266,7 @@ func (h *BaseAPIHandler) countWithPluginExecutor(ctx context.Context, handlerTyp
 	ctx = enrichContextWithSessionHierarchy(ctx, opts.Headers, req.Payload, opts.Metadata)
 	resp, errCount := host.CountPluginExecutor(ctx, executorPluginID, req, opts)
 	if errCount != nil {
-		errMsg := executionErrorMessage(errCount)
+		errMsg := h.executionErrorMessageForHandler(errCount)
 		lifecycle.completeError(ctx, errMsg)
 		return nil, nil, errMsg
 	}

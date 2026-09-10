@@ -55,3 +55,20 @@ failover:
   terminal-type: "service_unavailable_error"
   terminal-code: "server_is_overloaded"
   terminal-message: "云翻译服务暂不可用，请稍后重试"
+
+# ---------------------------------------------------------------------------
+# Upstream error message rewrite (CPA overlay patch, shipped with the patched
+# cli-proxy-api binary). When enabled, matching upstream error responses are
+# replaced with the configured client-facing message instead of leaking the
+# raw upstream body / headers / identity.
+# ---------------------------------------------------------------------------
+error-rewrite:
+  enabled: true
+  # Used when a status has no explicit entry below. Empty means leave those
+  # statuses untouched.
+  default-message: "[云翻译]上游服务暂时不可用，请稍后重试"
+  status-messages:
+    "429": "[云翻译]被上游限流，请稍微再试"
+    "500": "[云翻译]上游服务暂时不可用，请稍后重试"
+    "502": "[云翻译]上游服务暂时不可用，请稍后重试"
+    "503": "[云翻译]上游服务暂时不可用，请稍后重试"

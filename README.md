@@ -226,6 +226,31 @@ failover:
   `disabled: false`（例如把 `grok web` 打开）；
 - 只作用于 `/v1/chat/completions`，其它入口不受影响。
 
+## CPA 上游错误消息改写补丁（同 overlay，新增）
+
+> 背景：上游 429/502/503 等错误原来会把上游原始 error body、请求头以及
+> 上游身份直接透给客户端；不利于隐藏“云翻译”背后到底打到哪家。此补丁在
+> CPA 把执行错误转成客户端响应前，按配置的状态码替换成自定义 message，并
+> 丢弃上游 body/headers。
+
+### 配置示例
+
+```yaml
+error-rewrite:
+  enabled: true
+  default-message: "[云翻译]上游服务暂时不可用，请稍后重试"
+  status-messages:
+    "429": "[云翻译]被上游限流，请稍微再试"
+    "502": "[云翻译]上游服务暂时不可用，请稍后重试"
+    "503": "[云翻译]上游服务暂时不可用，请稍后重试"
+```
+
+- 命中的响应保留原 HTTP 状态码，body 改为标准 OpenAI error JSON，
+  `message` 用配置值；
+- 未配置的状态：若 `default-message` 非空则用默认，否则原样透出；
+- 覆盖普通 HTTP、流式错误，以及 `/v1/responses` WebSocket 的 upstream
+  disconnect error。
+
 ## 工作原理（首帧改写插件）
 
 对每个流式 payload 帧做如下判断：
@@ -274,15 +299,20 @@ cliproxy-thinking-mask/
 ├── main_cgo_disabled.go       # 非 cgo 编译占位（便于无 C 工具链机器跑测试/构建）
 ├── build.sh                   # linux/amd64 c-shared 构建
 ├── config.example.yaml        # CPA 配置片段
-├── _cpa-overlay/              # CPA 补丁（thinking + codex 过载降级）：覆盖到 CLIProxyAPI 源码根目录
-│   ├── internal/config/sdk_config.go        # 新增 failover 字段
+├── _cpa-overlay/              # CPA 补丁（thinking + codex 过载降级 + 上游错误消息改写）：覆盖到 CLIProxyAPI 源码根目录
+│   ├── internal/config/sdk_config.go        # 新增 failover/error-rewrite 字段
 │   ├── internal/config/sdk_failover.go      # failover 配置类型
+│   ├── internal/config/sdk_error_rewrite.go # 上游错误消息改写配置类型
+│   ├── internal/config/sdk_error_rewrite_test.go
 │   ├── sdk/api/handlers/handlers_failover.go        # 降级判定/终端错误构造
 │   ├── sdk/api/handlers/handlers_failover_test.go
-│   ├── sdk/api/handlers/handlers_execution.go       # 非流式降级接入
-│   ├── sdk/api/handlers/handlers_stream.go          # 流式降级接入
+│   ├── sdk/api/handlers/handlers_error_rewrite.go   # 错误消息改写逻辑
+│   ├── sdk/api/handlers/handlers_error_rewrite_test.go
+│   ├── sdk/api/handlers/handlers_execution.go       # 非流式降级接入 + 错误改写
+│   ├── sdk/api/handlers/handlers_stream.go          # 流式降级接入 + 错误改写
 │   ├── sdk/api/handlers/openai/openai_handlers.go   # 抢先 thinking
-│   └── sdk/api/handlers/openai/openai_handlers_early_test.go
+│   ├── sdk/api/handlers/openai/openai_handlers_early_test.go
+│   └── sdk/api/handlers/openai/openai_responses_websocket.go # websocket 错误改写
 ├── README.md
 ├── internal/mask/
 │   ├── mask.go                # 纯逻辑：首帧 thinking 改写 + 请求级跟踪

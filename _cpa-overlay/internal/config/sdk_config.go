@@ -66,6 +66,12 @@ type SDKConfig struct {
 	// request with an overload/502/503 bootstrap error.
 	Failover FailoverConfig `yaml:"failover" json:"failover"`
 
+	// ErrorRewrite configures custom client-facing messages for upstream errors.
+	// When enabled, matching upstream error responses are replaced with the
+	// configured message so the raw upstream error body and upstream identity are
+	// not exposed.
+	ErrorRewrite ErrorRewriteConfig `yaml:"error-rewrite" json:"error-rewrite"`
+
 	// NonStreamKeepAliveInterval controls how often blank lines are emitted for non-streaming responses.
 	// <= 0 disables keep-alives. Value is in seconds.
 	NonStreamKeepAliveInterval int `yaml:"nonstream-keepalive-interval,omitempty" json:"nonstream-keepalive-interval,omitempty"`

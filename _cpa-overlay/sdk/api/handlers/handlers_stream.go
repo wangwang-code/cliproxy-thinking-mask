@@ -72,7 +72,7 @@ func (h *BaseAPIHandler) streamWithPluginExecutor(ctx context.Context, entryProt
 		if reporter != nil && !nestedTracker.hasNestedExecution() {
 			reporter.PublishFailure(execCtx, errStream)
 		}
-		errMsg := executionErrorMessage(errStream)
+		errMsg := h.executionErrorMessageForHandler(errStream)
 		lifecycle.completeError(execCtx, errMsg)
 		errChan := make(chan *interfaces.ErrorMessage, 1)
 		errChan <- errMsg
@@ -196,7 +196,7 @@ func (h *BaseAPIHandler) streamWithPluginExecutor(ctx context.Context, entryProt
 				return
 			}
 			if chunk.Err != nil {
-				errMsg := executionErrorMessage(chunk.Err)
+				errMsg := h.executionErrorMessageForHandler(chunk.Err)
 				completionOutcome = pluginapi.RequestCompletionFailed
 				completionStatus = errMsg.StatusCode
 				completionErr = chunk.Err
@@ -380,7 +380,7 @@ func (h *BaseAPIHandler) executeStreamWithAuthManagerFormats(ctx context.Context
 	}
 	if err != nil {
 		err = enrichAuthSelectionError(err, providers, normalizedModel)
-		errMsg := executionErrorMessage(err)
+		errMsg := h.executionErrorMessageForHandler(err)
 		lifecycle.completeError(ctx, errMsg)
 		errChan := make(chan *interfaces.ErrorMessage, 1)
 		errChan <- errMsg
@@ -575,22 +575,22 @@ func (h *BaseAPIHandler) executeStreamWithAuthManagerFormats(ctx context.Context
 			break
 		}
 		if bootstrapRetries >= maxBootstrapRetries || !bootstrapEligible(bootstrapStreamErr) {
-			bootstrapErr = executionErrorMessage(bootstrapStreamErr)
+			bootstrapErr = h.executionErrorMessageForHandler(bootstrapStreamErr)
 			break
 		}
 		bootstrapRetries++
 		retryResult, retryErr := h.AuthManager.ExecuteStream(ctx, providers, req, opts)
 		if retryErr != nil {
-			originalBootstrapErr := executionErrorMessage(bootstrapStreamErr)
+			originalBootstrapErr := h.executionErrorMessageForHandler(bootstrapStreamErr)
 			if isAuthSelectionUnavailable(retryErr) && originalBootstrapErr.StatusCode >= http.StatusInternalServerError {
 				bootstrapErr = originalBootstrapErr
 			} else {
-				bootstrapErr = executionErrorMessage(enrichAuthSelectionError(retryErr, providers, normalizedModel))
+				bootstrapErr = h.executionErrorMessageForHandler(enrichAuthSelectionError(retryErr, providers, normalizedModel))
 			}
 			break
 		}
 		if retryResult == nil {
-			bootstrapErr = executionErrorMessage(fmt.Errorf("auth manager returned nil stream"))
+			bootstrapErr = h.executionErrorMessageForHandler(fmt.Errorf("auth manager returned nil stream"))
 			break
 		}
 		rawStreamHeaders = cloneHeader(retryResult.Headers)
@@ -716,7 +716,7 @@ func (h *BaseAPIHandler) executeStreamWithAuthManagerFormats(ctx context.Context
 				return
 			}
 			if chunk.Err != nil {
-				errMsg := executionErrorMessage(chunk.Err)
+				errMsg := h.executionErrorMessageForHandler(chunk.Err)
 				completionOutcome = pluginapi.RequestCompletionFailed
 				completionStatus = errMsg.StatusCode
 				completionErr = chunk.Err
