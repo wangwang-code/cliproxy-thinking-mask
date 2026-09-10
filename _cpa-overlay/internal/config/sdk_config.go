@@ -96,6 +96,14 @@ type StreamingConfig struct {
 	// When empty, a built-in default thinking text is used.
 	FakeThinkingText string `yaml:"fake-thinking-text,omitempty" json:"fake-thinking-text,omitempty"`
 
+	// FakeThinkingTexts is an optional ordered list used by subsequent keep-alive
+	// heartbeats. Each time a keep-alive fires while the upstream first token is
+	// still pending, CPA writes the standard SSE keep-alive comment plus a fake
+	// reasoning_content frame using the next item in this list. The initial frame
+	// still uses FakeThinkingText. When the list is exhausted, keep-alives return
+	// to the standard comment-only heartbeat.
+	FakeThinkingTexts []string `yaml:"fake-thinking-texts,omitempty" json:"fake-thinking-texts,omitempty"`
+
 	// BootstrapRetries controls how many times the server may retry a streaming request before any bytes are sent,
 	// to allow auth rotation / transient recovery.
 	// <= 0 disables bootstrap retries. Default is 0.

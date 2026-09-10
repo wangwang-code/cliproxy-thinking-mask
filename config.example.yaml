@@ -72,3 +72,21 @@ error-rewrite:
     "500": "[云翻译]上游服务暂时不可用，请稍后重试"
     "502": "[云翻译]上游服务暂时不可用，请稍后重试"
     "503": "[云翻译]上游服务暂时不可用，请稍后重试"
+
+# ---------------------------------------------------------------------------
+# Streaming (CPA overlay patch, shipped with the patched cli-proxy-api binary).
+# Enables preemptive fake thinking while waiting for the upstream first token.
+# ---------------------------------------------------------------------------
+streaming:
+  # SSE heartbeats + preemptive fake thinking. Set > 0 to enable.
+  keepalive-seconds: 15
+  # Text sent immediately after the SSE stream commits (before the first keepalive).
+  fake-thinking-text: "Let me think through this step by step before giving the final answer."
+  # Optional ordered texts sent on each subsequent keepalive tick, in order:
+  # 1st keepalive -> first item, 2nd keepalive -> second item, etc.
+  # When exhausted, keepalives return to comment-only heartbeats.
+  fake-thinking-texts:
+    - "第一次Keepalive的文案"
+    - "第二次"
+    - "第三次"
+    - "第四次"

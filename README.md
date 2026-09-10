@@ -128,8 +128,10 @@ plugins:
    只有 `delta.reasoning_content`（无 `content`）的 `chat.completion.chunk`
    帧——客户端马上进入“思考中”；
 2. 上游执行（含其同步 bootstrap）放到后台 goroutine；
-3. 在等上游首个真实 chunk 期间，按 keepalive 周期持续发 `: keep-alive` 心跳，
-   客户端不会被判定超时/空白；
+3. 在等上游首个真实 chunk 期间，按 keepalive 周期持续发 `: keep-alive` 心跳；
+   如果配置了 `streaming.fake-thinking-texts`，每个 keepalive 还会**按列表顺序**
+   额外发一个 `delta.reasoning_content` 假 thinking 帧（第 1 次 Keepalive 用
+   第 1 条、第 2 次用第 2 条……列表耗尽后恢复纯心跳）；
 4. 上游首 chunk 一就绪，立即接上 `handleStreamResult` 原样转发真实流；随后
    插件（如上）会在真实首内容帧上再补一个 `reasoning_content`，形成
    “思考中 → 正式回答”两段式。
@@ -144,12 +146,17 @@ plugins:
 > - 上游若在首字节前报错，会以 SSE 错误帧呈现，而**不是** HTTP 4xx JSON
 >   （这是“抢先”的必然代价）。
 
-### 配置（只需在原有 streaming 段下加一行可选文案）
+### 配置
 
 ```yaml
 streaming:
   keepalive-seconds: 5      # > 0 才启用“开流即抢先发 thinking”，同时保持心跳
-  fake-thinking-text: "我先理清一下需求，然后给出准确回答。"  # 可选，缺省用内置英文文案
+  fake-thinking-text: "我先理清一下需求，然后给出准确回答。"  # 可选，开流首帧，缺省用内置英文文案
+  fake-thinking-texts:      # 可选：每次 Keepalive 额外发的假 thinking 文案，按顺序取用
+    - "第一次Keepalive的文案"
+    - "第二次"
+    - "第三次"
+    - "第四次"
 
 passthrough-headers: false  # 建议关掉：抢先模式下上游响应头无法透传（见上）
 ```
@@ -310,8 +317,9 @@ cliproxy-thinking-mask/
 │   ├── sdk/api/handlers/handlers_error_rewrite_test.go
 │   ├── sdk/api/handlers/handlers_execution.go       # 非流式降级接入 + 错误改写
 │   ├── sdk/api/handlers/handlers_stream.go          # 流式降级接入 + 错误改写
-│   ├── sdk/api/handlers/openai/openai_handlers.go   # 抢先 thinking
+│   ├── sdk/api/handlers/openai/openai_handlers.go   # 抢先 thinking + 按序 Keepalive 假 thinking
 │   ├── sdk/api/handlers/openai/openai_handlers_early_test.go
+│   ├── sdk/api/handlers/openai/openai_handlers_keepalive_test.go
 │   └── sdk/api/handlers/openai/openai_responses_websocket.go # websocket 错误改写
 ├── README.md
 ├── internal/mask/

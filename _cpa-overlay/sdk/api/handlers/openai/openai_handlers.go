@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -499,9 +500,12 @@ func (h *OpenAIAPIHandler) handleStreamingResponse(c *gin.Context, rawJSON []byt
 	// preserved so early upstream errors still return proper HTTP error JSON.
 	if handlers.StreamingKeepAliveInterval(h.Cfg) > 0 {
 		thinkingText := ""
+		var keepAliveThinkingTexts []string
 		if h.Cfg != nil {
 			thinkingText = h.Cfg.Streaming.FakeThinkingText
+			keepAliveThinkingTexts = h.Cfg.Streaming.FakeThinkingTexts
 		}
+		keepAliveThinkingIndex := 0
 
 		type streamStart struct {
 			data <-chan []byte
@@ -530,7 +534,7 @@ func (h *OpenAIAPIHandler) handleStreamingResponse(c *gin.Context, rawJSON []byt
 				h.handleStreamResult(c, flusher, func(err error) { cliCancel(err) }, start.data, start.errs)
 				return
 			case <-keepAlive.C:
-				_, _ = c.Writer.Write([]byte(": keep-alive\n\n"))
+				keepAliveThinkingIndex = writeKeepAliveFakeThinking(c.Writer, modelName, keepAliveThinkingTexts, keepAliveThinkingIndex)
 				flusher.Flush()
 			}
 		}
@@ -818,4 +822,21 @@ func buildEarlyThinkingChunk(model, thinkingText string) []byte {
 		return nil
 	}
 	return raw
+}
+
+// writeKeepAliveFakeThinking writes one keep-alive heartbeat to w. It always
+// writes the standard SSE comment heartbeat and, when texts[index] exists, also
+// writes a fake reasoning_content data frame using that text. It returns the
+// index to use for the next keep-alive tick.
+func writeKeepAliveFakeThinking(w io.Writer, model string, texts []string, index int) int {
+	_, _ = io.WriteString(w, ": keep-alive\n\n")
+	if index >= len(texts) {
+		return index
+	}
+	text := texts[index]
+	index++
+	if frame := buildEarlyThinkingChunk(model, text); len(frame) > 0 {
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", string(frame))
+	}
+	return index
 }
