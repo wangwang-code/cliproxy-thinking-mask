@@ -825,9 +825,10 @@ func buildEarlyThinkingChunk(model, thinkingText string) []byte {
 }
 
 // writeKeepAliveFakeThinking writes one keep-alive heartbeat to w. It always
-// writes the standard SSE comment heartbeat and, when texts[index] exists, also
-// writes a fake reasoning_content data frame using that text. It returns the
-// index to use for the next keep-alive tick.
+// writes the standard SSE comment heartbeat and, when texts[index] is non-empty,
+// also writes a fake reasoning_content data frame using that text. Empty or
+// whitespace-only entries are skipped (only the heartbeat is written) but the
+// list index still advances. It returns the index to use for the next keep-alive tick.
 func writeKeepAliveFakeThinking(w io.Writer, model string, texts []string, index int) int {
 	_, _ = io.WriteString(w, ": keep-alive\n\n")
 	if index >= len(texts) {
@@ -835,6 +836,9 @@ func writeKeepAliveFakeThinking(w io.Writer, model string, texts []string, index
 	}
 	text := texts[index]
 	index++
+	if strings.TrimSpace(text) == "" {
+		return index
+	}
 	if frame := buildEarlyThinkingChunk(model, text); len(frame) > 0 {
 		_, _ = fmt.Fprintf(w, "data: %s\n\n", string(frame))
 	}

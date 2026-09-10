@@ -104,6 +104,13 @@ type StreamingConfig struct {
 	// to the standard comment-only heartbeat.
 	FakeThinkingTexts []string `yaml:"fake-thinking-texts,omitempty" json:"fake-thinking-texts,omitempty"`
 
+	// FirstEventTimeout is how long CPA waits for the first valid upstream SSE
+	// event before treating the current upstream attempt as dead. When the timeout
+	// fires, the attempt is canceled and the existing bootstrap/same-pool retry
+	// path is used to try another credential/endpoint. Empty or invalid disables
+	// the timeout (legacy indefinite wait). Accepts Go duration strings like "5s".
+	FirstEventTimeout string `yaml:"first-event-timeout,omitempty" json:"first-event-timeout,omitempty"`
+
 	// BootstrapRetries controls how many times the server may retry a streaming request before any bytes are sent,
 	// to allow auth rotation / transient recovery.
 	// <= 0 disables bootstrap retries. Default is 0.

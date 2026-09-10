@@ -79,7 +79,7 @@ jobs:
         run: |
           go test ./internal/config/ -run 'TestErrorRewrite'
           go test ./sdk/api/handlers/openai/ -run 'TestBuildEarlyThinkingChunk|TestWriteKeepAliveFakeThinking'
-          go test ./sdk/api/handlers/ -run 'TestIsOverloadBootstrapError|TestFailoverConfigEnabled|TestFailoverTerminalError|TestRewriteExecutionErrorMessage|TestExecutionErrorMessageForHandlerRewrites'
+          go test ./sdk/api/handlers/ -run 'TestIsOverloadBootstrapError|TestFailoverConfigEnabled|TestFailoverTerminalError|TestRewriteExecutionErrorMessage|TestExecutionErrorMessageForHandlerRewrites|TestStreamingFirstEventTimeout'
 
       - name: Build patched CPA linux/amd64
         working-directory: CLIProxyAPI

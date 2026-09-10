@@ -90,3 +90,7 @@ streaming:
     - "第二次"
     - "第三次"
     - "第四次"
+  # How long to wait for the first valid upstream SSE event before treating the
+  # current upstream attempt as dead and retrying from the pool. Empty/0 disables.
+  # Recommended for production: "5s".
+  first-event-timeout: "5s"

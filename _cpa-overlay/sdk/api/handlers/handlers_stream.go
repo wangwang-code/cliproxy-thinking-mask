@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/interfaces"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
@@ -513,6 +514,20 @@ func (h *BaseAPIHandler) executeStreamWithAuthManagerFormats(ctx context.Context
 	var bootstrapStreamErr error
 	var bootstrapErr *interfaces.ErrorMessage
 	readInitialStreamChunks := func() {
+		firstEventTimeout := StreamingFirstEventTimeout(h.Cfg)
+		var firstEventTimer *time.Timer
+		var firstEventC <-chan time.Time
+		if firstEventTimeout > 0 {
+			firstEventTimer = time.NewTimer(firstEventTimeout)
+			defer firstEventTimer.Stop()
+			firstEventC = firstEventTimer.C
+		}
+		streamTimeoutErr := func() error {
+			if firstEventTimeout > 0 {
+				return fmt.Errorf("upstream first event timeout after %s", firstEventTimeout)
+			}
+			return nil
+		}
 		for {
 			var chunk coreexecutor.StreamChunk
 			var ok bool
@@ -521,10 +536,18 @@ func (h *BaseAPIHandler) executeStreamWithAuthManagerFormats(ctx context.Context
 				case <-ctx.Done():
 					streamCanceledBeforeRead = true
 					return
+				case <-firstEventC:
+					bootstrapStreamErr = streamTimeoutErr()
+					return
 				case chunk, ok = <-chunks:
 				}
 			} else {
-				chunk, ok = <-chunks
+				select {
+				case <-firstEventC:
+					bootstrapStreamErr = streamTimeoutErr()
+					return
+				case chunk, ok = <-chunks:
+				}
 			}
 			if !ok {
 				streamClosedBeforeRead = true

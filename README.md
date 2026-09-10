@@ -157,9 +157,18 @@ streaming:
     - "第二次"
     - "第三次"
     - "第四次"
+    - ""                     # 空串/纯空白 = 本次只发心跳，不发假 thinking，列表继续往后
+  first-event-timeout: "5s"  # 上游首有效 SSE 事件超时；超时后取消当前上游尝试并池内重试
 
 passthrough-headers: false  # 建议关掉：抢先模式下上游响应头无法透传（见上）
 ```
+
+`first-event-timeout` 说明：
+
+- 等待上游第一个有效 SSE 事件超过该时间 → 主动取消当前上游尝试；
+- 该超时作为可重试错误进入现有 bootstrap/same-pool 重试链路（换 codex 号/端点）；
+- 所有重试都耗完后，才向客户端发送超时错误，避免无限 keepalive 挂住请求；
+- 留空或 `0` 保持旧行为（无限等）。
 
 ### 直接使用 Actions 产物
 
