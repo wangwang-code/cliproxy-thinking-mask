@@ -69,3 +69,24 @@ func TestBuildEarlyThinkingChunkUsesDefaultText(t *testing.T) {
 		t.Fatal("expected a non-empty default thinking text")
 	}
 }
+
+func TestBuildEarlyThinkingChunkPreservesLeadingNewline(t *testing.T) {
+	raw := buildEarlyThinkingChunk("gpt-test", "\n云翻译处于灰测中")
+	var chunk struct {
+		Choices []struct {
+			Delta struct {
+				ReasoningContent string `json:"reasoning_content"`
+			} `json:"delta"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(raw, &chunk); err != nil {
+		t.Fatalf("chunk decode failed: %v", err)
+	}
+	if len(chunk.Choices) == 0 {
+		t.Fatal("chunk has no choices")
+	}
+	got := chunk.Choices[0].Delta.ReasoningContent
+	if got != "\n云翻译处于灰测中" {
+		t.Fatalf("reasoning_content = %q, want leading newline preserved", got)
+	}
+}

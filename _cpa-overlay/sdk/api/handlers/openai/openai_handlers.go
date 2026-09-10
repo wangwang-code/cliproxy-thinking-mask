@@ -800,8 +800,8 @@ type earlyThinkingChunk struct {
 // buildEarlyThinkingChunk builds a chat.completion.chunk SSE payload whose delta
 // contains reasoning_content (the fake thinking text) and no content yet.
 func buildEarlyThinkingChunk(model, thinkingText string) []byte {
-	text := strings.TrimSpace(thinkingText)
-	if text == "" {
+	text := thinkingText
+	if strings.TrimSpace(text) == "" {
 		text = defaultFakeThinkingText
 	}
 	chunk := earlyThinkingChunk{
