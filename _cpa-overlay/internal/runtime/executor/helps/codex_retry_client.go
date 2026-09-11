@@ -64,6 +64,23 @@ func codexConnectionRetryInterval(raw string) time.Duration {
 	return 300 * time.Millisecond
 }
 
+// CodexFirstEventTimeout returns the configured streaming.first-event-timeout
+// duration. Empty or invalid values disable the timeout.
+func CodexFirstEventTimeout(cfg *config.Config) time.Duration {
+	if cfg == nil {
+		return 0
+	}
+	raw := strings.TrimSpace(cfg.Streaming.FirstEventTimeout)
+	if raw == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return 0
+	}
+	return d
+}
+
 // isRetryableConnectionError reports whether a RoundTrip error is a
 // connection-layer failure that a fresh attempt may fix. These happen before or
 // during transport establishment (dial / TLS handshake / proxy connect) or as a
