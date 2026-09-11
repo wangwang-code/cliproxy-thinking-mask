@@ -139,6 +139,24 @@ func StreamingFirstEventTimeout(cfg *config.SDKConfig) time.Duration {
 	return d
 }
 
+// StreamingStallTimeout returns how long CPA waits for the next valid upstream
+// SSE event after the first event has already arrived. Returning 0 disables the
+// stall timeout.
+func StreamingStallTimeout(cfg *config.SDKConfig) time.Duration {
+	if cfg == nil {
+		return 0
+	}
+	raw := strings.TrimSpace(cfg.Streaming.StallTimeout)
+	if raw == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return 0
+	}
+	return d
+}
+
 // NonStreamingKeepAliveInterval returns the keep-alive interval for non-streaming responses.
 // Returning 0 disables keep-alives (default when unset).
 func NonStreamingKeepAliveInterval(cfg *config.SDKConfig) time.Duration {

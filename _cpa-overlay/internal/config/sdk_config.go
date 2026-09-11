@@ -111,6 +111,13 @@ type StreamingConfig struct {
 	// the timeout (legacy indefinite wait). Accepts Go duration strings like "5s".
 	FirstEventTimeout string `yaml:"first-event-timeout,omitempty" json:"first-event-timeout,omitempty"`
 
+	// StallTimeout is how long CPA waits for the next valid upstream SSE event
+	// after at least one event has already been received. When the timeout fires,
+	// the current stream is considered stalled and terminated with an error to the
+	// client. Empty or invalid disables the timeout. Accepts Go duration strings
+	// like "10s".
+	StallTimeout string `yaml:"stall-timeout,omitempty" json:"stall-timeout,omitempty"`
+
 	// BootstrapRetries controls how many times the server may retry a streaming request before any bytes are sent,
 	// to allow auth rotation / transient recovery.
 	// <= 0 disables bootstrap retries. Default is 0.

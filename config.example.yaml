@@ -94,3 +94,7 @@ streaming:
   # current upstream attempt as dead and retrying from the pool. Empty/0 disables.
   # Recommended for production: "5s".
   first-event-timeout: "5s"
+  # After at least one SSE event has arrived, how long to wait for the next event
+  # before considering the upstream stream stalled and terminating it with an
+  # error to the client. Empty/0 disables.
+  stall-timeout: "10s"
