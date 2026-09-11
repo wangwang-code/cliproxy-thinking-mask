@@ -102,7 +102,7 @@ type StreamingConfig struct {
 	// reasoning_content frame using the next item in this list. The initial frame
 	// still uses FakeThinkingText. When the list is exhausted, keep-alives return
 	// to the standard comment-only heartbeat.
-	FakeThinkingTexts []string `yaml:"fake-thinking-texts,omitempty" json:"fake-thinking-texts,omitempty"`
+	FakeThinkingTexts StringList `yaml:"fake-thinking-texts,omitempty" json:"fake-thinking-texts,omitempty"`
 
 	// FirstEventTimeout is how long CPA waits for the first valid upstream SSE
 	// event before treating the current upstream attempt as dead. When the timeout
