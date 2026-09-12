@@ -177,6 +177,46 @@ passthrough-headers: false  # 建议关掉：抢先模式下上游响应头无�
 - 此时直接终止当前流并向客户端发送 504/超时错误（不再池内重试，避免重复内容）；
 - 留空或 `0` 保持旧行为（一直等）。
 
+### 上游流预算（stream-limits）
+
+用于防止上游“输出失控”：按 API key / model 匹配请求，根据输入文本长度动态计算
+最大上游流转发字节数；也可额外限制单次流时长和累计 content 字符数。超限时终止
+上游流，并向客户端返回固定 payload：
+
+```json
+{"error":{"type":"server_error","code":"upstream_response_too_large","message":"模型输出失控，已中止"}}
+```
+
+配置示例：
+
+```yaml
+stream-limits:
+  enabled: true
+  rules:
+    - name: "translation"
+      api-keys:
+        - "sk-REPLACE_WITH_TRANSLATION_KEY"
+      models:
+        - "gpt-5.6-*"
+      input-budget:
+        base-bytes: 65536
+        bytes-per-input-char: 32
+        min-bytes: 131072
+        max-bytes: 1048576
+      max-stream-duration: "30s"
+      max-content-chars: 32768
+```
+
+动态字节预算：
+
+```text
+maxStreamBytes = clamp(
+    base-bytes + input-chars * bytes-per-input-char,
+    min-bytes,
+    max-bytes
+)
+```
+
 ### 直接使用 Actions 产物
 
 不用自己打补丁：每次 Actions 的 **build-patched-cpa** job 会：

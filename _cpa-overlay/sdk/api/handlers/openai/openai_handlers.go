@@ -474,6 +474,7 @@ func (h *OpenAIAPIHandler) handleStreamingResponse(c *gin.Context, rawJSON []byt
 	}
 
 	modelName := gjson.GetBytes(rawJSON, "model").String()
+	h.ApplyStreamLimits(c, modelName, rawJSON)
 	cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
 
 	setSSEHeaders := func() {

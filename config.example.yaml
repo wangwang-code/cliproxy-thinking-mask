@@ -98,3 +98,25 @@ streaming:
   # before considering the upstream stream stalled and terminating it with an
   # error to the client. Empty/0 disables.
   stall-timeout: "10s"
+
+# ---------------------------------------------------------------------------
+# Upstream stream budgets (CPA overlay patch). Matches requests by API key and/or
+# model, computes a dynamic byte budget from the request text size, and aborts a
+# runaway upstream stream with the fixed payload:
+#   {"error":{"type":"server_error","code":"upstream_response_too_large","message":"模型输出失控，已中止"}}
+# ---------------------------------------------------------------------------
+stream-limits:
+  enabled: true
+  rules:
+    - name: "translation"
+      api-keys:
+        - "sk-REPLACE_WITH_TRANSLATION_KEY"
+      models:
+        - "gpt-5.6-*"
+      input-budget:
+        base-bytes: 65536
+        bytes-per-input-char: 32
+        min-bytes: 131072
+        max-bytes: 1048576
+      max-stream-duration: "30s"
+      max-content-chars: 32768

@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/interfaces"
+	"github.com/tidwall/gjson"
 )
 
 // PendingStreamError returns an immediately available non-nil stream error.
@@ -32,6 +33,19 @@ type StreamForwardOptions struct {
 	// StallTimeout overrides the configured streaming stall timeout. If nil, the
 	// configured default is used. If set to <= 0, the stall timeout is disabled.
 	StallTimeout *time.Duration
+
+	// MaxStreamBytes overrides the resolved per-request upstream stream byte
+	// budget. If nil, the budget is read from the gin context (set by
+	// applyStreamLimits). <= 0 disables the byte cap.
+	MaxStreamBytes *int
+
+	// MaxStreamDuration overrides the resolved per-request upstream stream
+	// duration cap. If nil, the budget is read from the gin context. <= 0 disables.
+	MaxStreamDuration *time.Duration
+
+	// MaxContentChars overrides the resolved per-request content-character cap.
+	// If nil, the budget is read from the gin context. <= 0 disables.
+	MaxContentChars *int
 
 	// WriteChunk writes a single data chunk to the response body. It should not flush.
 	WriteChunk func(chunk []byte)
@@ -117,6 +131,49 @@ func (h *BaseAPIHandler) ForwardStream(c *gin.Context, flusher http.Flusher, can
 		stallC = stallTimer.C
 	}
 
+	limits, _ := streamLimitsFromContext(c)
+	maxStreamBytes := limits.maxBytes
+	maxStreamDuration := limits.maxDuration
+	maxContentChars := limits.maxContentChars
+	if opts.MaxStreamBytes != nil {
+		maxStreamBytes = *opts.MaxStreamBytes
+	}
+	if opts.MaxStreamDuration != nil {
+		maxStreamDuration = *opts.MaxStreamDuration
+	}
+	if opts.MaxContentChars != nil {
+		maxContentChars = *opts.MaxContentChars
+	}
+	var streamLimitTimer *time.Timer
+	var streamLimitC <-chan time.Time
+	if maxStreamDuration > 0 {
+		streamLimitTimer = time.NewTimer(maxStreamDuration)
+		defer streamLimitTimer.Stop()
+		streamLimitC = streamLimitTimer.C
+	}
+	streamBytes := 0
+	contentChars := 0
+	writeStreamLimitError := func() {
+		limitErr := newUpstreamResponseTooLargeError()
+		if opts.NormalizeTerminalError != nil {
+			limitErr = opts.NormalizeTerminalError(limitErr)
+		}
+		if opts.WriteTerminalError != nil {
+			opts.WriteTerminalError(limitErr)
+			flusher.Flush()
+		}
+		cancel(limitErr.Error)
+	}
+	exceedsStreamLimits := func() bool {
+		if maxStreamBytes > 0 && streamBytes > maxStreamBytes {
+			return true
+		}
+		if maxContentChars > 0 && contentChars > maxContentChars {
+			return true
+		}
+		return false
+	}
+
 	var terminalErr *interfaces.ErrorMessage
 	for {
 		select {
@@ -150,6 +207,14 @@ func (h *BaseAPIHandler) ForwardStream(c *gin.Context, flusher http.Flusher, can
 				}
 				flusher.Flush()
 				cancel(nil)
+				return
+			}
+			streamBytes += len(chunk)
+			if maxContentChars > 0 {
+				contentChars += countChunkContentChars(chunk)
+			}
+			if exceedsStreamLimits() {
+				writeStreamLimitError()
 				return
 			}
 			writeChunk(chunk)
@@ -190,6 +255,9 @@ func (h *BaseAPIHandler) ForwardStream(c *gin.Context, flusher http.Flusher, can
 			}
 			cancel(execErr)
 			return
+		case <-streamLimitC:
+			writeStreamLimitError()
+			return
 		case <-stallC:
 			stallErr := &interfaces.ErrorMessage{
 				StatusCode: http.StatusGatewayTimeout,
@@ -209,4 +277,22 @@ func (h *BaseAPIHandler) ForwardStream(c *gin.Context, flusher http.Flusher, can
 			flusher.Flush()
 		}
 	}
+}
+
+// countChunkContentChars returns the number of content characters in one
+// OpenAI/Claude-style streaming chunk. It is only called when a content cap is
+// configured.
+func countChunkContentChars(chunk []byte) int {
+	if len(chunk) == 0 {
+		return 0
+	}
+	content := gjson.GetBytes(chunk, "choices.0.delta.content")
+	if content.Type == gjson.String {
+		return len([]rune(content.String()))
+	}
+	content = gjson.GetBytes(chunk, "choices.0.message.content")
+	if content.Type == gjson.String {
+		return len([]rune(content.String()))
+	}
+	return 0
 }

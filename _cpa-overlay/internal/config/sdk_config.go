@@ -72,6 +72,11 @@ type SDKConfig struct {
 	// not exposed.
 	ErrorRewrite ErrorRewriteConfig `yaml:"error-rewrite" json:"error-rewrite"`
 
+	// StreamLimits configures per-request upstream stream budgets. It can cap a
+	// stream by dynamically computed bytes, wall-clock duration, and content
+	// characters, which protects clients from runaway upstream output.
+	StreamLimits StreamLimitsConfig `yaml:"stream-limits" json:"stream-limits"`
+
 	// NonStreamKeepAliveInterval controls how often blank lines are emitted for non-streaming responses.
 	// <= 0 disables keep-alives. Value is in seconds.
 	NonStreamKeepAliveInterval int `yaml:"nonstream-keepalive-interval,omitempty" json:"nonstream-keepalive-interval,omitempty"`
