@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"path"
@@ -16,10 +17,29 @@ import (
 // streamLimitsContextKey stores the per-request stream budget in gin.Context.
 const streamLimitsContextKey = "cpaStreamLimits"
 
+// requestLifecycleContextKey stores the request lifecycle tracker in gin.Context
+// so downstream forwarding code can report terminal failures (for example a
+// stream-budget abort) to plugins and monitoring.
+const requestLifecycleContextKey = "cpaRequestLifecycle"
+
+// bindRequestLifecycle stores the lifecycle tracker on the gin context carried
+// by ctx. It is a no-op when no gin context is available (SDK callers, tests).
+func bindRequestLifecycle(ctx context.Context, lifecycle *requestLifecycleTracker) {
+	if ctx == nil || lifecycle == nil {
+		return
+	}
+	ginCtx, ok := ctx.Value("gin").(*gin.Context)
+	if !ok || ginCtx == nil {
+		return
+	}
+	ginCtx.Set(requestLifecycleContextKey, lifecycle)
+}
+
 // upstreamResponseTooLargeJSON is the exact client-facing payload emitted when a
-// stream exceeds its configured budget. It is already valid JSON, so
+// stream exceeds its configured budget. It follows the OpenAI error object shape
+// (message/type/param/code) and is already valid JSON, so
 // BuildErrorResponseBody forwards it verbatim.
-const upstreamResponseTooLargeJSON = `{"error":{"type":"server_error","code":"upstream_response_too_large","message":"模型输出失控，已中止"}}`
+const upstreamResponseTooLargeJSON = `{"error":{"message":"模型输出失控，已中止","type":"server_error","param":null,"code":"upstream_response_too_large"}}`
 
 // streamLimits is the resolved per-request budget applied in ForwardStream.
 type streamLimits struct {

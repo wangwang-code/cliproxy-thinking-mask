@@ -184,7 +184,7 @@ passthrough-headers: false  # 建议关掉：抢先模式下上游响应头无�
 上游流，并向客户端返回固定 payload：
 
 ```json
-{"error":{"type":"server_error","code":"upstream_response_too_large","message":"模型输出失控，已中止"}}
+{"error":{"message":"模型输出失控，已中止","type":"server_error","param":null,"code":"upstream_response_too_large"}}
 ```
 
 配置示例：

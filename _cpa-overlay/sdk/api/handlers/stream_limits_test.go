@@ -194,4 +194,7 @@ func TestUpstreamResponseTooLargeJSONIsValid(t *testing.T) {
 	if !strings.Contains(upstreamResponseTooLargeJSON, `"message":"模型输出失控，已中止"`) {
 		t.Fatalf("unexpected payload: %s", upstreamResponseTooLargeJSON)
 	}
+	if !strings.Contains(upstreamResponseTooLargeJSON, `"param":null`) {
+		t.Fatalf("payload lacks OpenAI-standard param field: %s", upstreamResponseTooLargeJSON)
+	}
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/interfaces"
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 	"github.com/tidwall/gjson"
 )
 
@@ -157,6 +158,11 @@ func (h *BaseAPIHandler) ForwardStream(c *gin.Context, flusher http.Flusher, can
 		limitErr := newUpstreamResponseTooLargeError()
 		if opts.NormalizeTerminalError != nil {
 			limitErr = opts.NormalizeTerminalError(limitErr)
+		}
+		if trackerValue, ok := c.Get(requestLifecycleContextKey); ok {
+			if tracker, ok := trackerValue.(*requestLifecycleTracker); ok && tracker != nil {
+				tracker.complete(pluginapi.RequestCompletionFailed, http.StatusBadGateway, limitErr.Error)
+			}
 		}
 		if opts.WriteTerminalError != nil {
 			opts.WriteTerminalError(limitErr)
