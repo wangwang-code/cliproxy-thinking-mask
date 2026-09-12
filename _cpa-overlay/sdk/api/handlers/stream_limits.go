@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"path"
 	"strings"
@@ -48,11 +47,26 @@ type streamLimits struct {
 	maxContentChars int
 }
 
+// streamLimitError is the error value used for a stream-budget abort. It
+// implements StatusCode so the usage reporter records a 502 failure instead of
+// an unknown status.
+type streamLimitError struct {
+	payload string
+}
+
+func (e *streamLimitError) Error() string {
+	return e.payload
+}
+
+func (e *streamLimitError) StatusCode() int {
+	return http.StatusBadGateway
+}
+
 // newUpstreamResponseTooLargeError builds the terminal error for a runaway stream.
 func newUpstreamResponseTooLargeError() *interfaces.ErrorMessage {
 	return &interfaces.ErrorMessage{
 		StatusCode: http.StatusBadGateway,
-		Error:      errors.New(upstreamResponseTooLargeJSON),
+		Error:      &streamLimitError{payload: upstreamResponseTooLargeJSON},
 	}
 }
 

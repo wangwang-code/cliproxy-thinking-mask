@@ -35,6 +35,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 	}
 
 	reporter := helps.NewExecutorUsageReporter(ctx, e, baseModel, auth)
+	reporter.BindStreamLimitPublisher(ctx)
 	defer reporter.TrackFailure(ctx, &err)
 
 	from := opts.SourceFormat
