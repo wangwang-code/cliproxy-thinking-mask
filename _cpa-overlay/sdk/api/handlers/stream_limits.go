@@ -62,6 +62,35 @@ func (h *BaseAPIHandler) ApplyStreamLimits(c *gin.Context, modelName string, raw
 	h.applyStreamLimits(c, modelName, rawJSON)
 }
 
+// recordStreamLimitError mirrors WriteErrorResponse's bookkeeping for the
+// post-headers SSE case: it records the error body and appends the error to the
+// request-logging middleware's API_RESPONSE_ERROR list. That list drives
+// error-only request logs, which CPAM's request monitoring reads.
+func (h *BaseAPIHandler) recordStreamLimitError(c *gin.Context, errMsg *interfaces.ErrorMessage) {
+	if c == nil || errMsg == nil {
+		return
+	}
+	status := errMsg.StatusCode
+	if status <= 0 {
+		status = http.StatusBadGateway
+	}
+	errText := http.StatusText(status)
+	if errMsg.Error != nil && errMsg.Error.Error() != "" {
+		errText = errMsg.Error.Error()
+	}
+	appendAPIResponse(c, BuildErrorResponseBody(status, errText))
+	if existing, ok := c.Get("API_RESPONSE_ERROR"); ok {
+		if list, ok := existing.([]*interfaces.ErrorMessage); ok {
+			merged := make([]*interfaces.ErrorMessage, 0, len(list)+1)
+			merged = append(merged, list...)
+			merged = append(merged, errMsg)
+			c.Set("API_RESPONSE_ERROR", merged)
+			return
+		}
+	}
+	c.Set("API_RESPONSE_ERROR", []*interfaces.ErrorMessage{errMsg})
+}
+
 // applyStreamLimits resolves and stores the stream budget for one request.
 // It is a no-op when stream limits are disabled or no rule matches.
 func (h *BaseAPIHandler) applyStreamLimits(c *gin.Context, modelName string, rawJSON []byte) {

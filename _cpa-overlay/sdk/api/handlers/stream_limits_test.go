@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -196,5 +197,37 @@ func TestUpstreamResponseTooLargeJSONIsValid(t *testing.T) {
 	}
 	if !strings.Contains(upstreamResponseTooLargeJSON, `"param":null`) {
 		t.Fatalf("payload lacks OpenAI-standard param field: %s", upstreamResponseTooLargeJSON)
+	}
+}
+
+func TestRecordStreamLimitErrorPopulatesRequestLogContext(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	h := &BaseAPIHandler{}
+	msg := newUpstreamResponseTooLargeError()
+	h.recordStreamLimitError(c, msg)
+
+	rawResponse, ok := c.Get("API_RESPONSE")
+	if !ok {
+		t.Fatal("API_RESPONSE was not set")
+	}
+	body, ok := rawResponse.([]byte)
+	if !ok {
+		t.Fatalf("API_RESPONSE = %#v, want []byte", rawResponse)
+	}
+	if !bytes.Contains(body, []byte(`"code":"upstream_response_too_large"`)) {
+		t.Fatalf("API_RESPONSE = %q, want stream-limit error body", string(body))
+	}
+
+	rawErrors, ok := c.Get("API_RESPONSE_ERROR")
+	if !ok {
+		t.Fatal("API_RESPONSE_ERROR was not set")
+	}
+	errorsList, ok := rawErrors.([]*interfaces.ErrorMessage)
+	if !ok || len(errorsList) != 1 || errorsList[0] != msg {
+		t.Fatalf("API_RESPONSE_ERROR = %#v, want [msg]", rawErrors)
 	}
 }

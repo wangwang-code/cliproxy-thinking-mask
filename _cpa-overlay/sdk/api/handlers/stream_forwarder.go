@@ -159,6 +159,7 @@ func (h *BaseAPIHandler) ForwardStream(c *gin.Context, flusher http.Flusher, can
 		if opts.NormalizeTerminalError != nil {
 			limitErr = opts.NormalizeTerminalError(limitErr)
 		}
+		h.recordStreamLimitError(c, limitErr)
 		if trackerValue, ok := c.Get(requestLifecycleContextKey); ok {
 			if tracker, ok := trackerValue.(*requestLifecycleTracker); ok && tracker != nil {
 				tracker.complete(pluginapi.RequestCompletionFailed, http.StatusBadGateway, limitErr.Error)
