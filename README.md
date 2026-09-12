@@ -199,12 +199,12 @@ stream-limits:
       models:
         - "gpt-5.6-*"
       input-budget:
-        base-bytes: 65536
+        base-bytes: 32768
         bytes-per-input-char: 32
-        min-bytes: 131072
-        max-bytes: 1048576
-      max-stream-duration: "30s"
-      max-content-chars: 32768
+        min-bytes: 32768
+        max-bytes: 262144
+      max-stream-duration: "55s"
+      max-content-chars: 16384
 ```
 
 动态字节预算：
