@@ -232,6 +232,19 @@ func requestExecutionMetadata(ctx context.Context) map[string]any {
 	if disallowFreeAuthFromContext(ctx) {
 		meta[coreexecutor.DisallowFreeAuthMetadataKey] = true
 	}
+	if ginCtx != nil {
+		if limits, ok := streamLimitsFromContext(ginCtx); ok {
+			if limits.maxBytes > 0 {
+				meta[coreexecutor.StreamLimitMaxBytesMetadataKey] = limits.maxBytes
+			}
+			if limits.maxDuration > 0 {
+				meta[coreexecutor.StreamLimitMaxDurationMetadataKey] = int64(limits.maxDuration / time.Millisecond)
+			}
+			if limits.maxContentChars > 0 {
+				meta[coreexecutor.StreamLimitMaxContentCharsMetadataKey] = limits.maxContentChars
+			}
+		}
+	}
 	return meta
 }
 

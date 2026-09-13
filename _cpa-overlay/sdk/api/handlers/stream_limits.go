@@ -35,10 +35,9 @@ func bindRequestLifecycle(ctx context.Context, lifecycle *requestLifecycleTracke
 }
 
 // upstreamResponseTooLargeJSON is the exact client-facing payload emitted when a
-// stream exceeds its configured budget. It follows the OpenAI error object shape
-// (message/type/param/code) and is already valid JSON, so
-// BuildErrorResponseBody forwards it verbatim.
-const upstreamResponseTooLargeJSON = `{"error":{"message":"模型输出失控，已中止","type":"server_error","param":null,"code":"upstream_response_too_large"}}`
+// stream exceeds its configured budget. The shared definition lives in
+// internal/interfaces so non-streaming executors emit the same payload.
+const upstreamResponseTooLargeJSON = interfaces.UpstreamResponseTooLargeJSON
 
 // streamLimits is the resolved per-request budget applied in ForwardStream.
 type streamLimits struct {
@@ -47,26 +46,11 @@ type streamLimits struct {
 	maxContentChars int
 }
 
-// streamLimitError is the error value used for a stream-budget abort. It
-// implements StatusCode so the usage reporter records a 502 failure instead of
-// an unknown status.
-type streamLimitError struct {
-	payload string
-}
-
-func (e *streamLimitError) Error() string {
-	return e.payload
-}
-
-func (e *streamLimitError) StatusCode() int {
-	return http.StatusBadGateway
-}
-
 // newUpstreamResponseTooLargeError builds the terminal error for a runaway stream.
 func newUpstreamResponseTooLargeError() *interfaces.ErrorMessage {
 	return &interfaces.ErrorMessage{
 		StatusCode: http.StatusBadGateway,
-		Error:      &streamLimitError{payload: upstreamResponseTooLargeJSON},
+		Error:      interfaces.NewStreamBudgetError(),
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/interfaces"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 )
 
@@ -75,6 +76,11 @@ func TestIsOverloadBootstrapError(t *testing.T) {
 		{
 			name: "unrelated bad gateway without status",
 			err:  errors.New(`upstream 502: connection reset`),
+			want: false,
+		},
+		{
+			name: "stream budget abort is terminal",
+			err:  interfaces.NewStreamBudgetError(),
 			want: false,
 		},
 	}

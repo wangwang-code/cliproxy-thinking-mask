@@ -439,6 +439,7 @@ func (h *OpenAIAPIHandler) handleNonStreamingResponse(c *gin.Context, rawJSON []
 	c.Header("Content-Type", "application/json")
 
 	modelName := gjson.GetBytes(rawJSON, "model").String()
+	h.ApplyStreamLimits(c, modelName, rawJSON)
 	cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
 	stopKeepAlive := h.StartNonStreamingKeepAlive(c, cliCtx)
 	resp, upstreamHeaders, errMsg := h.ExecuteWithAuthManager(cliCtx, h.HandlerType(), modelName, rawJSON, h.GetAlt(c))

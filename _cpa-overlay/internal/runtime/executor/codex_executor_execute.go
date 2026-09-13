@@ -3,11 +3,13 @@ package executor
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/interfaces"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/thinking"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
@@ -124,7 +126,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 		err = newCodexStatusErr(httpResp.StatusCode, b)
 		return resp, err
 	}
-	data, errRead := io.ReadAll(httpResp.Body)
+	data, errRead := helps.ReadAllWithStreamBudget(httpResp.Body, helps.StreamBudgetFromOptions(opts))
 	upstreamData := applyCodexIdentityConfuseResponsePayload(data, identityState)
 	helps.AppendAPIResponseChunk(ctx, e.cfg, upstreamData)
 
@@ -202,6 +204,13 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 			return resp, err
 		}
 		helps.RecordAPIResponseError(ctx, e.cfg, errRead)
+		// A stream-budget abort is terminal for this request: return it as-is so
+		// the usage reporter records a 502 and the handler does not retry it.
+		var budgetErr *interfaces.StreamBudgetError
+		if errors.As(errRead, &budgetErr) {
+			err = errRead
+			return resp, err
+		}
 	}
 	err = newCodexIncompleteStreamError()
 	return resp, err

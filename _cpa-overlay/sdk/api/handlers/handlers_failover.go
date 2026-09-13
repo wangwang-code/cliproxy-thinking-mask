@@ -70,7 +70,21 @@ func isOverloadBootstrapError(err error) bool {
 	if err == nil {
 		return false
 	}
+	// A stream-budget abort is a terminal request failure, not a transient
+	// capacity rejection: never re-run it on the fallback endpoint.
+	type streamBudgetFailure interface {
+		StreamBudgetExceeded() bool
+	}
+	var budgetFailure streamBudgetFailure
+	if errors.As(err, &budgetFailure) && budgetFailure.StreamBudgetExceeded() {
+		return false
+	}
 	text := strings.ToLower(err.Error())
+	// Auth managers may legitimately re-wrap the executor error, dropping the
+	// marker method from the chain. Keep the payload code as a text fallback.
+	if strings.Contains(text, "upstream_response_too_large") {
+		return false
+	}
 	if strings.Contains(text, "server_is_overloaded") ||
 		strings.Contains(text, "service_unavailable_error") ||
 		strings.Contains(text, "servers are currently overloaded") {

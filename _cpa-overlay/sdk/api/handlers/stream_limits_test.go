@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/interfaces"
+	coreexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
 )
 
 func TestComputeStreamByteBudget(t *testing.T) {
@@ -100,6 +102,18 @@ func TestApplyStreamLimitsStoresDynamicBudget(t *testing.T) {
 	}
 	if limits.maxContentChars != 123 {
 		t.Fatalf("maxContentChars = %d, want 123", limits.maxContentChars)
+	}
+
+	ctx := context.WithValue(context.Background(), "gin", c)
+	meta := requestExecutionMetadata(ctx)
+	if meta[coreexecutor.StreamLimitMaxBytesMetadataKey] != 2000 {
+		t.Fatalf("metadata max bytes = %#v, want 2000", meta[coreexecutor.StreamLimitMaxBytesMetadataKey])
+	}
+	if meta[coreexecutor.StreamLimitMaxDurationMetadataKey] != int64(5000) {
+		t.Fatalf("metadata max duration = %#v, want 5000ms", meta[coreexecutor.StreamLimitMaxDurationMetadataKey])
+	}
+	if meta[coreexecutor.StreamLimitMaxContentCharsMetadataKey] != 123 {
+		t.Fatalf("metadata max content chars = %#v, want 123", meta[coreexecutor.StreamLimitMaxContentCharsMetadataKey])
 	}
 }
 
