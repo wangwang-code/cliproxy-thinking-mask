@@ -17,6 +17,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/interfaces"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/thinking"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
@@ -199,6 +200,13 @@ func (e *OpenAICompatExecutor) Execute(ctx context.Context, auth *cliproxyauth.A
 	budget := helps.StreamBudgetFromOptions(opts)
 	body, err := helps.ReadAllWithStreamBudget(httpResp.Body, budget)
 	if err != nil {
+		helps.RecordAPIResponseError(ctx, e.cfg, err)
+		return resp, err
+	}
+	// The content-character cap is a local policy abort evaluated on the completed
+	// body, mirroring the codex aggregation path.
+	if helps.ContentCharsExceeded(body, budget.MaxContentChars) {
+		err = interfaces.NewStreamBudgetError()
 		helps.RecordAPIResponseError(ctx, e.cfg, err)
 		return resp, err
 	}

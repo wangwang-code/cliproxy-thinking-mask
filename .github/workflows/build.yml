@@ -81,7 +81,7 @@ jobs:
           go test ./sdk/api/handlers/openai/ -run 'TestBuildEarlyThinkingChunk|TestWriteKeepAliveFakeThinking'
           go test ./sdk/api/handlers/ -run 'TestIsOverloadBootstrapError|TestFailoverConfigEnabled|TestFailoverTerminalError|TestFailoverAttemptTerminalKeepsStreamBudgetPayload|TestRewriteExecutionErrorMessage|TestExecutionErrorMessageForHandlerRewrites|TestStreamingFirstEventTimeout|TestStreamingStallTimeout|TestForwardStreamStallTimeout|TestComputeStreamByteBudget|TestMatchStreamLimitRule|TestCountRequestTextChars|TestApplyStreamLimitsStoresDynamicBudget|TestForwardStreamMax|TestUpstreamResponseTooLargeJSONIsValid|TestRecordStreamLimitErrorPopulatesRequestLogContext'
           go test ./internal/runtime/executor/helps/ -run 'TestReadAllWithStreamBudget|TestStreamBudgetFromOptions|TestCountResponseContentChars|TestContentCharsExceeded'
-          go test ./internal/runtime/executor/ -run 'TestCodexExecutorExecuteEnforcesStreamBudget|TestCodexExecutorExecuteWithoutBudgetStaysIncomplete|TestCodexExecutorExecuteEnforcesContentCharBudget|TestCodexExecutorExecuteContentCharBudgetAllowsShorterAnswer|TestOpenAICompatExecutorExecuteEnforcesStreamBudget|TestOpenAICompatExecutorExecuteWithoutBudgetReadsWholeBody'
+          go test ./internal/runtime/executor/ -run 'TestCodexExecutorExecuteEnforcesStreamBudget|TestCodexExecutorExecuteWithoutBudgetStaysIncomplete|TestCodexExecutorExecuteEnforcesContentCharBudget|TestCodexExecutorExecuteContentCharBudgetAllowsShorterAnswer|TestOpenAICompatExecutorExecuteEnforcesStreamBudget|TestOpenAICompatExecutorExecuteWithoutBudgetReadsWholeBody|TestOpenAICompatExecutorExecuteEnforcesContentCharBudget'
 
       - name: Build patched CPA linux/amd64
         working-directory: CLIProxyAPI

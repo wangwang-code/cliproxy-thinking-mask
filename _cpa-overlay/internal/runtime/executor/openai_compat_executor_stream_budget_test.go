@@ -72,3 +72,21 @@ func TestOpenAICompatExecutorExecuteWithoutBudgetReadsWholeBody(t *testing.T) {
 		t.Fatalf("choices.0.message.content = %q, want ok; payload=%s", got, resp.Payload)
 	}
 }
+
+// The content-character cap must bind on the fallback (JSON) path too: a body
+// whose answer text is longer than the cap is clamped even though its byte size
+// stays under the byte budget.
+func TestOpenAICompatExecutorExecuteEnforcesContentCharBudget(t *testing.T) {
+	body := `{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"` +
+		strings.Repeat("a", 2000) + `"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`
+	_, err := openAICompatBudgetExecute(t, openAICompatBudgetServer(t, body).URL, map[string]any{
+		cliproxyexecutor.StreamLimitMaxContentCharsMetadataKey: 128,
+	})
+	var budgetErr *interfaces.StreamBudgetError
+	if !errors.As(err, &budgetErr) {
+		t.Fatalf("Execute error = %v, want *interfaces.StreamBudgetError", err)
+	}
+	if !budgetErr.StreamBudgetExceeded() {
+		t.Fatal("the content-character abort must carry the stream budget marker")
+	}
+}
