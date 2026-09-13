@@ -183,3 +183,37 @@ func TestIsFailoverTriggerError(t *testing.T) {
 		})
 	}
 }
+
+// TestFailoverAttemptTerminalKeepsStreamBudgetPayload pins the fallback-chain
+// behaviour for a clamped fallback upstream: the chain must stop and return the
+// clamp payload itself instead of the synthetic failover terminal error, and the
+// configured upstream-error rewrite must not hide it.
+func TestFailoverAttemptTerminalKeepsStreamBudgetPayload(t *testing.T) {
+	h := &BaseAPIHandler{Cfg: &config.SDKConfig{
+		ErrorRewrite: config.ErrorRewriteConfig{
+			Enabled:        true,
+			DefaultMessage: "upstream unavailable",
+		},
+	}}
+
+	msg := h.failoverAttemptTerminal(interfaces.NewStreamBudgetError())
+	if msg == nil {
+		t.Fatal("failoverAttemptTerminal(stream budget) = nil, want a terminal message")
+	}
+	if msg.StatusCode != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d", msg.StatusCode, http.StatusBadGateway)
+	}
+	if msg.Error == nil || !strings.Contains(msg.Error.Error(), "upstream_response_too_large") {
+		t.Fatalf("error = %v, want the clamp payload", msg.Error)
+	}
+	if strings.Contains(msg.Error.Error(), "upstream unavailable") {
+		t.Fatalf("error = %v, want the clamp payload untouched by error-rewrite", msg.Error)
+	}
+
+	if other := h.failoverAttemptTerminal(errors.New("upstream 502 overload")); other != nil {
+		t.Fatalf("failoverAttemptTerminal(non-budget) = %+v, want nil so the chain continues", other)
+	}
+	if other := h.failoverAttemptTerminal(nil); other != nil {
+		t.Fatalf("failoverAttemptTerminal(nil) = %+v, want nil", other)
+	}
+}

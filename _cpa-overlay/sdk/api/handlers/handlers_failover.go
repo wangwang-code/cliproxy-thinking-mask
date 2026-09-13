@@ -205,8 +205,10 @@ func (h *BaseAPIHandler) failoverTerminalError() *interfaces.ErrorMessage {
 // tryNonStreamFailover runs the non-streaming fallback chain. Return semantics:
 //   - applied=false: failover not applicable; caller keeps the original error.
 //   - applied=true, ok=true: a fallback endpoint succeeded; resp is usable.
-//   - applied=true, ok=false: every endpoint failed; caller must emit the
-//     synthetic terminal error.
+//   - applied=true, ok=false: every endpoint failed; the caller must emit
+//     terminal when it is non-nil (a local stream-budget abort of a fallback
+//     endpoint, whose payload is intentionally client-facing) or the synthetic
+//     failover error otherwise.
 //
 // failoverDiagnosticState resolves which preconditions for failover are met, for logging.
 func (h *BaseAPIHandler) failoverDiagnosticState(entryProtocol string, payload []byte) (enabled, entryOK, hasMessages bool) {
@@ -216,23 +218,23 @@ func (h *BaseAPIHandler) failoverDiagnosticState(entryProtocol string, payload [
 	return
 }
 
-func (h *BaseAPIHandler) tryNonStreamFailover(ctx context.Context, entryProtocol string, providers []string, req coreexecutor.Request, opts coreexecutor.Options, payload []byte, cause error) (resp coreexecutor.Response, applied, ok bool) {
+func (h *BaseAPIHandler) tryNonStreamFailover(ctx context.Context, entryProtocol string, providers []string, req coreexecutor.Request, opts coreexecutor.Options, payload []byte, cause error) (resp coreexecutor.Response, applied, ok bool, terminal *interfaces.ErrorMessage) {
 	if h == nil || h.AuthManager == nil {
 		log.Warnf("failover: skipped (nil handler/auth) protocol=%s providers=%v", entryProtocol, providers)
-		return resp, false, false
+		return resp, false, false, nil
 	}
 	enabled, entryOK, hasMessages := h.failoverDiagnosticState(entryProtocol, payload)
 	if !enabled || !entryOK || !hasMessages {
 		log.Warnf("failover: skipped (preconditions) enabled=%v entryOK=%v hasMessages=%v protocol=%q err=%v", enabled, entryOK, hasMessages, entryProtocol, cause)
-		return resp, false, false
+		return resp, false, false, nil
 	}
 	if !isFailoverTriggerError(cause) {
 		log.Warnf("failover: skipped (not trigger) protocol=%s providers=%v status=%d err=%v", entryProtocol, providers, statusFromError(cause), cause)
-		return resp, false, false
+		return resp, false, false, nil
 	}
 	if !h.failoverMatchesPrimary(providers) {
 		log.Warnf("failover: skipped (primary mismatch) providers=%v configured=%v", providers, h.Cfg.Failover.PrimaryProviders)
-		return resp, false, false
+		return resp, false, false, nil
 	}
 	for _, endpoint := range h.failoverEndpoints() {
 		if strings.TrimSpace(endpoint.Name) == "" {
@@ -242,11 +244,29 @@ func (h *BaseAPIHandler) tryNonStreamFailover(ctx context.Context, entryProtocol
 		log.Warnf("failover: trying endpoint=%q providers=%v model=%q", endpoint.Name, attemptProviders, attemptReq.Model)
 		attemptResp, attemptErr := h.AuthManager.Execute(ctx, attemptProviders, attemptReq, opts)
 		if attemptErr == nil {
-			return attemptResp, true, true
+			return attemptResp, true, true, nil
+		}
+		if terminal := h.failoverAttemptTerminal(attemptErr); terminal != nil {
+			// The fallback upstream also ran away and was clamped locally. The
+			// clamp payload must reach the client, so stop the chain here instead
+			// of replacing it with the synthetic failover error.
+			log.Warnf("failover: endpoint=%q aborted by stream budget err=%v", endpoint.Name, attemptErr)
+			return resp, true, false, terminal
 		}
 		log.Warnf("failover: endpoint=%q failed err=%v", endpoint.Name, attemptErr)
 	}
-	return resp, true, false
+	return resp, true, false, nil
+}
+
+// failoverAttemptTerminal returns the client-facing terminal error for an attempt
+// whose failure must end the fallback chain because it carries its own
+// client-facing payload (a local stream-budget abort). It returns nil for every
+// error that should keep the chain going.
+func (h *BaseAPIHandler) failoverAttemptTerminal(attemptErr error) *interfaces.ErrorMessage {
+	if !isStreamBudgetFailure(attemptErr) {
+		return nil
+	}
+	return h.executionErrorMessageForHandler(attemptErr)
 }
 
 // tryStreamFailover runs the streaming fallback chain (same semantics as

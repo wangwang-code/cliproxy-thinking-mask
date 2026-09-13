@@ -126,7 +126,8 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 		err = newCodexStatusErr(httpResp.StatusCode, b)
 		return resp, err
 	}
-	data, errRead := helps.ReadAllWithStreamBudget(httpResp.Body, helps.StreamBudgetFromOptions(opts))
+	budget := helps.StreamBudgetFromOptions(opts)
+	data, errRead := helps.ReadAllWithStreamBudget(httpResp.Body, budget)
 	upstreamData := applyCodexIdentityConfuseResponsePayload(data, identityState)
 	helps.AppendAPIResponseChunk(ctx, e.cfg, upstreamData)
 
@@ -178,18 +179,26 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 			return resp, err
 		}
 
-		if detail, ok := helps.ParseCodexUsage(eventData); ok {
-			reporter.Publish(ctx, detail)
-		}
-		publishCodexImageToolUsage(ctx, reporter, body, eventData)
-
 		completedData := patchCodexCompletedOutput(eventData, outputItemsByIndex, outputItemsFallback)
 		if eventType == "response.completed" {
 			cacheCodexReasoningReplayFromCompleted(replayScope, completedData)
 		}
 
-		var param any
 		clientCompletedData := applyCodexIdentityExposeResponsePayload(completedData, identityState)
+		// The content-character cap is a local policy abort, so it is evaluated
+		// before the usage record is published: a clamped response must be
+		// reported as failed instead of as a successful translation.
+		if helps.ContentCharsExceeded(clientCompletedData, budget.MaxContentChars) {
+			err = interfaces.NewStreamBudgetError()
+			return cliproxyexecutor.Response{}, err
+		}
+
+		if detail, ok := helps.ParseCodexUsage(eventData); ok {
+			reporter.Publish(ctx, detail)
+		}
+		publishCodexImageToolUsage(ctx, reporter, body, eventData)
+
+		var param any
 		out := sdktranslator.TranslateNonStream(ctx, to, responseFormat, req.Model, originalPayload, body, clientCompletedData, &param)
 		if responseFormat == sdktranslator.FormatOpenAIResponse {
 			out = helps.EnsureResponsesUsageDetails(out)

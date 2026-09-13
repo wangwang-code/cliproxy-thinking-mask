@@ -99,12 +99,15 @@ func (h *BaseAPIHandler) executeWithAuthManagerFormats(ctx context.Context, entr
 		// Silent failover: when the primary provider (e.g. codex OAuth) rejects a
 		// chat.completions request with an overload error, retry against the
 		// configured OpenAI-compatible endpoints before giving up.
-		if fallbackResp, applied, ok := h.tryNonStreamFailover(ctx, entryProtocol, providers, req, opts, rawJSON, err); applied {
+		if fallbackResp, applied, ok, terminal := h.tryNonStreamFailover(ctx, entryProtocol, providers, req, opts, rawJSON, err); applied {
 			if ok {
 				resp = fallbackResp
 				err = nil
 			} else {
-				errMsg := h.failoverTerminalError()
+				errMsg := terminal
+				if errMsg == nil {
+					errMsg = h.failoverTerminalError()
+				}
 				lifecycle.completeError(ctx, errMsg)
 				return nil, nil, errMsg
 			}
