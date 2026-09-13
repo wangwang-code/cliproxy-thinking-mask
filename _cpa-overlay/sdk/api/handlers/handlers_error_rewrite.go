@@ -1,17 +1,23 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/interfaces"
 )
 
 // rewriteExecutionErrorMessage applies the configured upstream-error rewrite to
 // an ErrorMessage produced by executionErrorMessage. It returns the original msg
-// when rewriting is disabled, no message matches the status, or msg is nil.
+// when rewriting is disabled, no message matches the status, msg is nil, or the
+// error is a local stream-budget abort (which is intentionally client-facing).
 func (h *BaseAPIHandler) rewriteExecutionErrorMessage(msg *interfaces.ErrorMessage) *interfaces.ErrorMessage {
 	if h == nil || h.Cfg == nil || msg == nil {
+		return msg
+	}
+	if isStreamBudgetFailure(msg.Error) {
 		return msg
 	}
 	cfg := h.Cfg.ErrorRewrite
@@ -47,4 +53,21 @@ func (h *BaseAPIHandler) RewriteExecutionErrorMessage(msg *interfaces.ErrorMessa
 // configured upstream-error rewrite.
 func (h *BaseAPIHandler) executionErrorMessageForHandler(err error) *interfaces.ErrorMessage {
 	return h.rewriteExecutionErrorMessage(executionErrorMessage(err))
+}
+
+// isStreamBudgetFailure reports whether err is (or wraps) a local stream-budget
+// abort. The clamp payload is intentionally client-facing, so it must bypass the
+// upstream-error rewrite that hides upstream identity.
+func isStreamBudgetFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	type streamBudgetFailure interface {
+		StreamBudgetExceeded() bool
+	}
+	var budgetFailure streamBudgetFailure
+	if errors.As(err, &budgetFailure) && budgetFailure.StreamBudgetExceeded() {
+		return true
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "upstream_response_too_large")
 }

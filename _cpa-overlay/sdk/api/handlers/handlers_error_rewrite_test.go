@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
@@ -112,6 +113,41 @@ func TestExecutionErrorMessageForHandlerRewrites(t *testing.T) {
 	}
 	if got.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("StatusCode = %d, want %d", got.StatusCode, http.StatusTooManyRequests)
+	}
+}
+
+func TestRewriteExecutionErrorMessageKeepsStreamBudgetError(t *testing.T) {
+	h := &BaseAPIHandler{Cfg: &config.SDKConfig{
+		ErrorRewrite: config.ErrorRewriteConfig{
+			Enabled:        true,
+			DefaultMessage: "[云翻译]上游服务暂时不可用，请稍后重试",
+			StatusMessages: map[string]string{"502": "[云翻译]上游服务暂时不可用，请稍后重试"},
+		},
+	}}
+	orig := &interfaces.ErrorMessage{StatusCode: http.StatusBadGateway, Error: interfaces.NewStreamBudgetError()}
+	got := h.rewriteExecutionErrorMessage(orig)
+	if got != orig {
+		t.Fatal("stream-budget error must bypass the upstream-error rewrite")
+	}
+	if got.Error == nil || !strings.Contains(got.Error.Error(), "upstream_response_too_large") {
+		t.Fatalf("Error = %v, want the stream-budget payload", got.Error)
+	}
+}
+
+func TestRewriteExecutionErrorMessageKeepsWrappedStreamBudgetText(t *testing.T) {
+	h := &BaseAPIHandler{Cfg: &config.SDKConfig{
+		ErrorRewrite: config.ErrorRewriteConfig{
+			Enabled:        true,
+			DefaultMessage: "[云翻译]上游服务暂时不可用，请稍后重试",
+		},
+	}}
+	// Auth managers may re-wrap the executor error into a plain error, dropping
+	// the marker method from the chain. The payload code must still bypass rewrite.
+	wrapped := errors.New(interfaces.NewStreamBudgetError().Error())
+	orig := &interfaces.ErrorMessage{StatusCode: http.StatusBadGateway, Error: wrapped}
+	got := h.rewriteExecutionErrorMessage(orig)
+	if got != orig {
+		t.Fatal("wrapped stream-budget text must bypass the upstream-error rewrite")
 	}
 }
 
